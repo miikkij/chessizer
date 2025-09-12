@@ -1,0 +1,203 @@
+{
+  "version": "1.0",
+  "generatedAt": "2025-09-12T22:44:21.946875Z",
+  "library": {
+    "preferred": "tone",
+    "alternatives": [
+      "web-audio-api"
+    ]
+  },
+  "presets": [
+    {
+      "id": "harmonic_layers",
+      "name": "Harmonic Layers",
+      "description": "Pitch maps to piece type. Octave maps to side. Volume reflects dominance. Percussion marks checks and captures.",
+      "engine": {
+        "oscillator": "sine",
+        "envelope": {
+          "attackMs": 5,
+          "decayMs": 120,
+          "sustain": 0.6,
+          "releaseMs": 240
+        },
+        "polyphony": 16
+      },
+      "mapping": {
+        "piecePitchHz": {
+          "pawn": 261.63,
+          "knight": 329.63,
+          "bishop": 392.0,
+          "rook": 440.0,
+          "queen": 493.88,
+          "king": 220.0
+        },
+        "octaveShift": {
+          "white": 1,
+          "black": -1
+        },
+        "volumeByValueDb": {
+          "pawn": -12,
+          "knight": -9,
+          "bishop": -9,
+          "rook": -6,
+          "queen": -3,
+          "king": -1
+        },
+        "tempoBaseBpm": 90,
+        "tempoIntensityFactor": 0.5,
+        "percussion": {
+          "capture": "click",
+          "check": "clap"
+        }
+      }
+    },
+    {
+      "id": "rhythm_focus",
+      "name": "Rhythm Focus",
+      "description": "White uses bright arpeggios. Black uses a slower beat. Density maps to number of active pieces.",
+      "engine": {
+        "oscillator": "triangle",
+        "envelope": {
+          "attackMs": 10,
+          "decayMs": 100,
+          "sustain": 0.5,
+          "releaseMs": 200
+        },
+        "polyphony": 12
+      },
+      "mapping": {
+        "arpeggioOrder": [
+          "king",
+          "queen",
+          "rook",
+          "bishop",
+          "knight",
+          "pawn"
+        ],
+        "whiteBeatPattern": [
+          1,
+          0,
+          1,
+          0
+        ],
+        "blackBeatPattern": [
+          1,
+          0,
+          0,
+          1
+        ],
+        "tempoBaseBpm": 80,
+        "densityPerPiece": 0.05,
+        "percussion": {
+          "capture": "click",
+          "check": "rim"
+        }
+      }
+    },
+    {
+      "id": "electro_scene",
+      "name": "Electro Scene",
+      "description": "Short blips for pawns. Glides for knights. Sweeps for bishops. Square pulses for rooks. Dominant synth for queen. Deep bass for king.",
+      "engine": {
+        "oscillator": "square",
+        "envelope": {
+          "attackMs": 2,
+          "decayMs": 80,
+          "sustain": 0.7,
+          "releaseMs": 180
+        },
+        "polyphony": 24,
+        "glideMs": 60
+      },
+      "mapping": {
+        "pieceWave": {
+          "pawn": "pulse",
+          "knight": "glide",
+          "bishop": "sweep",
+          "rook": "pulse",
+          "queen": "lead",
+          "king": "bass"
+        },
+        "basePitchHz": 220.0,
+        "tempoBaseBpm": 100,
+        "percussion": {
+          "capture": "snare",
+          "check": "hihat"
+        }
+      }
+    },
+    {
+      "id": "ambient_clouds",
+      "name": "Ambient Clouds",
+      "description": "White as airy layers. Black as low drones. Stereo pan and reverb reflect balance and space.",
+      "engine": {
+        "oscillator": "sine",
+        "envelope": {
+          "attackMs": 200,
+          "decayMs": 600,
+          "sustain": 0.9,
+          "releaseMs": 1200
+        },
+        "polyphony": 32,
+        "reverb": {
+          "room": 0.8,
+          "damp": 0.3
+        }
+      },
+      "mapping": {
+        "whitePan": -0.2,
+        "blackPan": 0.2,
+        "dronePitchHz": {
+          "white": 261.63,
+          "black": 196.0
+        },
+        "tempoBaseBpm": 60,
+        "percussion": {
+          "capture": "low_tap",
+          "check": "bell"
+        }
+      }
+    },
+    {
+      "id": "choir_hint",
+      "name": "Choir Hint",
+      "description": "Female choir timbre for white. Male choir timbre for black. Harmony resolves on check and mate.",
+      "engine": {
+        "oscillator": "sine",
+        "chorus": {
+          "depth": 0.6,
+          "frequencyHz": 1.5
+        },
+        "envelope": {
+          "attackMs": 50,
+          "decayMs": 200,
+          "sustain": 0.8,
+          "releaseMs": 400
+        },
+        "polyphony": 16
+      },
+      "mapping": {
+        "whiteFormantShift": 7,
+        "blackFormantShift": -5,
+        "chordForKingSafety": {
+          "safe": "maj7",
+          "in_check": "sus4",
+          "mating": "dim7"
+        },
+        "tempoBaseBpm": 72,
+        "percussion": {
+          "capture": "tap",
+          "check": "gong"
+        }
+      }
+    }
+  ],
+  "defaults": {
+    "tickIntervalMs": 1000,
+    "maxSimultaneousVoices": 16,
+    "compressor": {
+      "thresholdDb": -24,
+      "ratio": 3.0
+    }
+  }
+}

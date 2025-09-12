@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BoardCompactEncoding",
+  "type": "object",
+  "properties": {
+    "boardString": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{256}$",
+      "description": "Compact encoding. 64 cells. Each cell is two bytes in hex. First byte is piece code. Second byte is flags."
+    }
+  },
+  "required": [
+    "boardString"
+  ]
+}
