@@ -513,9 +513,30 @@ export class ToneEngine {
 
         const mapping = this.currentPreset.mapping;
         const now = Tone.now();
+        const maxPolyphony = this.currentPreset.engine.polyphony;
+
+        // Prioritize pieces by value for polyphony limiting
+        const pieceValues = { k: 10, q: 9, r: 5, b: 3, n: 3, p: 1 };
+        const sortPiecesByPriority = (pieces: PieceInfo[]) =>
+            pieces.sort((a, b) => (pieceValues[b.type] || 0) - (pieceValues[a.type] || 0));
+
+        // Sort pieces by priority and limit total pieces to maxPolyphony
+        const prioritizedWhite = sortPiecesByPriority([...whitePieces]);
+        const prioritizedBlack = sortPiecesByPriority([...blackPieces]);
+
+        // Calculate how many pieces from each side to play
+        const totalPieces = whitePieces.length + blackPieces.length;
+        const whiteRatio = whitePieces.length / totalPieces;
+        const maxWhitePieces = Math.min(prioritizedWhite.length, Math.ceil(maxPolyphony * whiteRatio));
+        const maxBlackPieces = Math.min(prioritizedBlack.length, maxPolyphony - maxWhitePieces);
+
+        const selectedWhite = prioritizedWhite.slice(0, maxWhitePieces);
+        const selectedBlack = prioritizedBlack.slice(0, maxBlackPieces);
+
+        console.log(`Polyphony limited to ${maxPolyphony}: playing ${selectedWhite.length} white + ${selectedBlack.length} black pieces`);
 
         // Play white pieces (higher octave)
-        whitePieces.forEach((piece, index) => {
+        selectedWhite.forEach((piece, index) => {
             const basePitch = mapping.piecePitchHz?.[this.getPieceTypeName(piece.type)] || 440;
             const octaveShift = mapping.octaveShift?.white || 0;
             const frequency = basePitch * Math.pow(2, octaveShift);
@@ -534,7 +555,7 @@ export class ToneEngine {
         });
 
         // Play black pieces (lower octave)
-        blackPieces.forEach((piece, index) => {
+        selectedBlack.forEach((piece, index) => {
             const basePitch = mapping.piecePitchHz?.[this.getPieceTypeName(piece.type)] || 440;
             const octaveShift = mapping.octaveShift?.black || 0;
             const frequency = basePitch * Math.pow(2, octaveShift);
@@ -556,8 +577,17 @@ export class ToneEngine {
 
         const now = Tone.now();
         const baseFreq = (this.currentPreset.mapping.basePitchHz as number) || 220;
+        const maxPolyphony = this.currentPreset.engine.polyphony;
 
-        pieces.forEach((piece, index) => {
+        // Prioritize pieces by value for polyphony limiting
+        const pieceValues = { k: 10, q: 9, r: 5, b: 3, n: 3, p: 1 };
+        const prioritizedPieces = pieces
+            .sort((a, b) => (pieceValues[b.type] || 0) - (pieceValues[a.type] || 0))
+            .slice(0, maxPolyphony);
+
+        console.log(`Generic sounds: limited to ${prioritizedPieces.length} of ${pieces.length} pieces`);
+
+        prioritizedPieces.forEach((piece, index) => {
             const frequency = this.getFrequencyForPiece(piece, baseFreq);
             const delay = index * 0.01;
 
