@@ -31,11 +31,14 @@ function App() {
     };
     const [bpm, setBpm] = useState(() => readNumber('settings.bpm', 120, 40, 300));
     const [swing, setSwing] = useState(() => readNumber('settings.swing', 0, 0, 1)); // 0..1
-    const [tickMs, setTickMs] = useState(1000);
+    const [tickMs, setTickMs] = useState(() => readNumber('settings.tickMs', 1000, 250, 5000));
     const [masterVolume, setMasterVolume] = useState(() => readNumber('settings.volume', 0.7, 0, 1)); // 0..1
     const [gamePreset, setGamePreset] = useState('immortal_game');
     const [pgnData, setPgnData] = useState('');
     const [currentFen, setCurrentFen] = useState('');
+    const [moveIndex, setMoveIndex] = useState(0);
+    const [externalMoveIndex, setExternalMoveIndex] = useState<number | undefined>(undefined); // Only set when navigating externally
+    const [moveCount, setMoveCount] = useState(1);
     const appRef = useRef<HTMLDivElement>(null);
     // Gate persisting to localStorage so we can clear without immediately re-saving defaults
     const persistRef = useRef(true);
@@ -119,6 +122,7 @@ function App() {
             agent.setTransport({ bpm, swing });
             // Apply persisted volume after init so masterGain exists
             agent.setMasterVolume(masterVolume);
+            agent.setTickDuration(tickMs);
             await agent.start();
             setIsPlaying(true);
         } else {
@@ -158,14 +162,17 @@ function App() {
             localStorage.removeItem('settings.bpm');
             localStorage.removeItem('settings.swing');
             localStorage.removeItem('settings.volume');
+            localStorage.removeItem('settings.tickMs');
         } catch { /* ignore */ }
         // Reset in-memory UI state to defaults
         setBpm(120);
         setSwing(0);
         setMasterVolume(0.7);
+        setTickMs(1000);
         // Apply immediately to agent if present
         agent?.setTransport({ bpm: 120, swing: 0 });
         agent?.setMasterVolume(0.7);
+        agent?.setTickDuration(1000);
         toast.success('Audio settings cleared and reset to defaults');
         // re-enable persistence after this render cycle
         setTimeout(() => { persistRef.current = true }, 0);
@@ -184,6 +191,10 @@ function App() {
         if (!persistRef.current) return;
         try { localStorage.setItem('settings.volume', String(masterVolume)); } catch { /* ignore */ }
     }, [masterVolume]);
+    useEffect(() => {
+        if (!persistRef.current) return;
+        try { localStorage.setItem('settings.tickMs', String(tickMs)); } catch { /* ignore */ }
+    }, [tickMs]);
 
     // Preset system removed in favor of JSON agent config; keep placeholder if needed later
 
@@ -273,9 +284,27 @@ function App() {
         const newPGN = generatePGN(presetId);
         setPgnData(newPGN);
         // The PGNViewer will call handlePositionChange with the initial position
-    }; const handlePositionChange = (fen: string, moveNumber: number) => {
+    };
+    const handlePositionChange = (fen: string, moveNumber: number) => {
         console.log('App: Position changed:', fen, 'move:', moveNumber);
-        setCurrentFen(fen);
+        // Only update state if values actually changed to prevent infinite loops
+        setCurrentFen((prev) => {
+            if (prev !== fen) {
+                console.log('App: FEN changed from', prev, 'to', fen);
+                return fen;
+            }
+            return prev;
+        });
+        // Only update moveIndex if we're not in the middle of external navigation
+        if (externalMoveIndex === undefined) {
+            setMoveIndex((prev) => {
+                if (prev !== moveNumber) {
+                    console.log('App: Move index changed from', prev, 'to', moveNumber);
+                    return moveNumber;
+                }
+                return prev;
+            });
+        }
     };
 
     // Initialize with current game preset
@@ -283,7 +312,17 @@ function App() {
         const initialPGN = generatePGN(gamePreset);
         setPgnData(initialPGN);
         // The PGNViewer will call handlePositionChange with the initial position
-    }, [generatePGN, gamePreset]); return (
+    }, [generatePGN, gamePreset]);
+
+    // Clear external move index after it's been processed
+    useEffect(() => {
+        if (externalMoveIndex !== undefined) {
+            const timer = setTimeout(() => {
+                setExternalMoveIndex(undefined);
+            }, 100); // Give PGNViewer time to process
+            return () => clearTimeout(timer);
+        }
+    }, [externalMoveIndex]); return (
         <div ref={appRef} className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
             <Toaster position="top-right" />
 
@@ -356,6 +395,8 @@ function App() {
                                     <PGNViewerWrapper
                                         pgn={pgnData}
                                         onPositionChange={handlePositionChange}
+                                        externalIndex={externalMoveIndex}
+                                        onGameLengthChange={setMoveCount}
                                         pieceStyle="merida"
                                         theme="brown"
                                         boardSize="400"
@@ -464,6 +505,33 @@ function App() {
                                 >
                                     {isPlaying ? "⏹️ Stop" : "▶️ Play"}
                                 </Button>
+
+                                {/* Simple timeline controls to ensure FEN moves */}
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => {
+                                            const newIndex = Math.max(0, moveIndex - 1);
+                                            setExternalMoveIndex(newIndex);
+                                            setMoveIndex(newIndex);
+                                        }}
+                                    >
+                                        ◀ Prev
+                                    </Button>
+                                    <div className="text-xs text-gray-600 min-w-[90px] text-center">
+                                        {moveIndex + 1} / {moveCount}
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => {
+                                            const newIndex = Math.min(moveCount - 1, moveIndex + 1);
+                                            setExternalMoveIndex(newIndex);
+                                            setMoveIndex(newIndex);
+                                        }}
+                                    >
+                                        Next ▶
+                                    </Button>
+                                </div>
 
                                 {/* Reset settings button */}
                                 <Button

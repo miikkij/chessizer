@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useCallback, useMemo, useState } from 'react';
+import { useLayoutEffect, useRef, useCallback, useMemo, useState, useEffect } from 'react';
 import { pgnView, type PgnViewerApi } from '@mliebelt/pgn-viewer';
 import { Chess } from 'chess.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -6,6 +6,10 @@ import { v4 as uuidv4 } from 'uuid';
 interface PGNViewerWrapperProps {
   pgn: string;
   onPositionChange?: (fen: string, moveIndex: number) => void;
+  // Optional: allow parent to control current move index
+  externalIndex?: number;
+  // Report the total number of positions (including start)
+  onGameLengthChange?: (length: number) => void;
   boardSize?: string;
   pieceStyle?: string;
   theme?: string;
@@ -18,6 +22,8 @@ interface PGNViewerWrapperProps {
 export function PGNViewerWrapper({
   pgn,
   onPositionChange,
+  externalIndex,
+  onGameLengthChange,
   boardSize = '400',
   pieceStyle = 'merida',
   theme = 'brown',
@@ -31,6 +37,9 @@ export function PGNViewerWrapper({
   const viewerRef = useRef<PgnViewerApi | null>(null);
   const chessRef = useRef<Chess>(new Chess());
   const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
+  const lastSentRef = useRef<number>(-1)
+  const currentIndexRef = useRef<number>(0)
+  const programmaticChangeRef = useRef<number>(0)
 
   const handlePositionChange = useCallback((fen: string, moveIndex: number) => {
     if (onPositionChange) {
@@ -91,6 +100,11 @@ export function PGNViewerWrapper({
     return moves;
   }, [gameDescription]);
 
+  // Notify parent of length
+  useEffect(() => {
+    onGameLengthChange?.(gameData.length)
+  }, [gameData.length, onGameLengthChange])
+
   // Update the chess reference when game data changes
   useLayoutEffect(() => {
     chessRef.current = new Chess();
@@ -111,9 +125,13 @@ export function PGNViewerWrapper({
   useLayoutEffect(() => {
     if (gameData.length > 0 && currentMoveIndex < gameData.length) {
       const position = gameData[currentMoveIndex];
-      console.log('PGNViewer: Position changed to', currentMoveIndex, position.fen);
-      console.log('PGNViewer: Game has', gameData.length, 'positions total');
-      handlePositionChange(position.fen, currentMoveIndex);
+      // Only notify if index actually changed to avoid feedback loops
+      if (currentMoveIndex !== lastSentRef.current) {
+        console.log('PGNViewer: Position changed to', currentMoveIndex, position.fen);
+        console.log('PGNViewer: Game has', gameData.length, 'positions total');
+        lastSentRef.current = currentMoveIndex
+        handlePositionChange(position.fen, currentMoveIndex);
+      }
     } else {
       console.log('PGNViewer: Invalid position data', {
         gameDataLength: gameData.length,
@@ -122,6 +140,30 @@ export function PGNViewerWrapper({
       });
     }
   }, [currentMoveIndex, gameData, handlePositionChange]);
+
+  // Apply external index from parent
+  useEffect(() => {
+    if (typeof externalIndex !== 'number') return
+    let idx = Math.floor(externalIndex)
+    if (!Number.isFinite(idx)) return
+    if (idx < 0) idx = 0
+    if (idx >= gameData.length) idx = gameData.length - 1
+    if (idx !== currentMoveIndex) {
+      setCurrentMoveIndex(idx)
+      // Best-effort reflect in embedded viewer by "clicking" the move element
+      const element = document.getElementById(id)
+      if (element) {
+        const nodes = element.querySelectorAll('.move, [data-move], [data-index], [data-ply]')
+        const target = nodes[idx] as HTMLElement | undefined
+        if (target) {
+          // Mark that we triggered a programmatic change so the delegate click handler
+          // won't treat this as a user-initiated change and start a feedback loop.
+          programmaticChangeRef.current = Date.now()
+          target.click?.()
+        }
+      }
+    }
+  }, [externalIndex, gameData.length, currentMoveIndex, id])
 
   useLayoutEffect(() => {
     console.log('Initializing pgn-viewer with PGN:', gameDescription);
@@ -153,65 +195,91 @@ export function PGNViewerWrapper({
         viewerRef.current = viewer;
         console.log('pgn-viewer created successfully');
 
-        // Set up a mutation observer to watch for DOM changes
-        // This will detect when the user navigates through moves
-        const observer = new MutationObserver((mutations) => {
-          mutations.forEach((mutation) => {
-            // Look for changes in the move list or board state
-            if (mutation.type === 'childList' || mutation.type === 'attributes') {
-              // Extract current move from DOM
-              const moveElement = element.querySelector('.current-move, .move.current, [data-move].current');
-              if (moveElement) {
-                const moveAttr = moveElement.getAttribute('data-move') ||
-                  moveElement.getAttribute('data-index') ||
-                  moveElement.textContent;
-
-                if (moveAttr) {
-                  const moveIdx = parseInt(moveAttr) || 0;
-                  if (moveIdx !== currentMoveIndex && moveIdx < gameData.length) {
-                    console.log('DOM detected move change to:', moveIdx);
-                    setCurrentMoveIndex(moveIdx);
-                  }
-                }
-              }
-
-              // Alternative: look for highlighted moves in the move list
-              const moveElements = element.querySelectorAll('[data-move], .move');
-              moveElements.forEach((el, idx) => {
-                if (el.classList.contains('current') || el.classList.contains('active')) {
-                  if (idx !== currentMoveIndex && idx < gameData.length) {
-                    console.log('DOM detected active move at index:', idx);
-                    setCurrentMoveIndex(idx);
-                  }
-                }
-              });
+        // Delegated click handler: after viewer processes click, read currentMove
+        const delegateClick = (evt: Event) => {
+          // Debug: surface that we saw a click inside the viewer
+          const tag = (evt.target as HTMLElement)?.tagName?.toLowerCase()
+          console.log('PGNViewer: delegate click', tag)
+          // Let the viewer handle the click first, then read its new state in a microtask
+          window.setTimeout(() => {
+            // If we triggered a programmatic click recently, ignore this delegate event
+            const sinceProgrammatic = Date.now() - programmaticChangeRef.current
+            if (programmaticChangeRef.current && sinceProgrammatic < 300) {
+              console.log('PGNViewer: ignoring delegate due to recent programmatic change', sinceProgrammatic)
+              return
             }
-          });
-        });
+            const base = viewerRef.current?.base as { currentMove?: number; mypgn?: unknown } | undefined
+            console.log('PGNViewer: viewerRef.base snapshot', base)
+            let cm = base?.currentMove
 
-        // Start observing
-        observer.observe(element, {
-          childList: true,
-          subtree: true,
-          attributes: true,
-          attributeFilter: ['class', 'data-move', 'data-index']
-        });
-
-        // Also set up click event listeners on move elements
-        setTimeout(() => {
-          const moveElements = element.querySelectorAll('.move, [data-move]');
-          moveElements.forEach((el, idx) => {
-            el.addEventListener('click', () => {
-              console.log('Click detected on move:', idx);
-              if (idx < gameData.length) {
-                setTimeout(() => setCurrentMoveIndex(idx), 50);
+            // Helpful diagnostics: inspect moves container and attributes
+            try {
+              const container = (viewerRef.current as unknown as { _container?: HTMLElement })?._container
+              if (container) {
+                const nodes = container.querySelectorAll('.move, [data-move], [data-index], [data-ply]')
+                console.log('PGNViewer: move nodes count (delegate):', nodes?.length)
+                if (nodes && nodes.length > 0) {
+                  // Log first few node class lists for debugging
+                  for (let i = 0; i < Math.min(6, nodes.length); i++) {
+                    try {
+                      const el = nodes[i] as HTMLElement
+                      const names = el.getAttributeNames?.() ?? []
+                      const attrs = names.map(n => [n, el.getAttribute(n)])
+                      console.log('PGNViewer: move node', i, el.className, attrs)
+                    } catch {
+                      /* ignore individual node logging errors */
+                    }
+                  }
+                }
               }
-            });
-          });
-        }, 500);
+            } catch (err) {
+              console.warn('PGNViewer: diagnostic collection failed', err)
+            }
 
-        // Store observer for cleanup
-        (viewer as { observer?: MutationObserver }).observer = observer;
+            // Fallback: if viewer doesn't expose currentMove, try to infer from DOM
+            if (typeof cm !== 'number') {
+              try {
+                const container = (viewerRef.current as unknown as { _container?: HTMLElement })?._container
+                const nodes = container?.querySelectorAll('.move, [data-move], [data-index], [data-ply]')
+                if (nodes && nodes.length > 0) {
+                  // Try to find an element that looks selected/current
+                  const sel = container?.querySelector('.move.current, .move.selected, .move.active, [aria-current="true"], [data-current="true"]') as HTMLElement | null
+                  if (sel) {
+                    const idx = Array.prototype.indexOf.call(nodes, sel)
+                    if (idx >= 0 && idx < gameData.length) cm = idx
+                  }
+                }
+              } catch (err) {
+                console.warn('PGNViewer: DOM fallback failed', err)
+              }
+            }
+
+            // Additional robust fallback: read the viewer's internal chess fen (if exposed)
+            try {
+              // Defensive: use a single cast to any for runtime-only inspection of viewer internals
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const v: any = viewerRef.current
+              const chessObj = v?.base?.chess
+              if (chessObj && typeof chessObj.fen === 'function') {
+                const fen = chessObj.fen()
+                console.log('PGNViewer: fen from viewer', fen)
+                const idx = gameData.findIndex(p => p.fen === fen)
+                if (idx >= 0 && idx < gameData.length && idx !== currentMoveIndex) {
+                  console.log('PGNViewer: delegate resolved index from fen', idx, 'current:', currentMoveIndex)
+                  // Update the internal index - this will trigger position change notification
+                  setCurrentMoveIndex(idx)
+                }
+              }
+            } catch (err) {
+              console.warn('PGNViewer: fen fallback failed', err)
+            }
+          }, 0)
+        }
+        element.addEventListener('click', delegateClick, true);
+
+        // Store for cleanup
+        ; (viewer as unknown as { _container?: HTMLElement })._container = element;
+        ; (viewer as unknown as { _delegateClick?: (e: Event) => void })._delegateClick = delegateClick;
 
       } catch (error) {
         console.error('Error initializing pgn-viewer:', error);
@@ -222,15 +290,71 @@ export function PGNViewerWrapper({
     return () => {
       clearTimeout(timer);
       if (viewerRef.current) {
-        // Stop observing
-        const observer = (viewerRef.current as { observer?: MutationObserver }).observer;
-        if (observer) {
-          observer.disconnect();
+        const ref = viewerRef.current as unknown as { _container?: HTMLElement; _delegateClick?: (e: Event) => void };
+        if (ref._container && ref._delegateClick) {
+          ref._container.removeEventListener('click', ref._delegateClick, true);
         }
         viewerRef.current = null;
       }
     };
-  }, [id, gameDescription, timerTime, locale, showResult, boardSize, showFen, pieceStyle, theme, gameData, currentMoveIndex]);
+    // Important: Do NOT depend on currentMoveIndex or gameData here, or the viewer will
+    // re-initialize on every move, causing an update loop. Only reinit when PGN or
+    // visual options change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, gameDescription, timerTime, locale, showResult, boardSize, showFen, pieceStyle, theme]);
+
+  // Fallback sync: poll viewer's currentMove to keep our index aligned, independent of DOM class names
+  useEffect(() => {
+    // Keep a mutable ref to the latest index so the interval closure doesn't get stale
+    currentIndexRef.current = currentMoveIndex
+
+    const interval = window.setInterval(() => {
+      try {
+        const base = viewerRef.current?.base as { currentMove?: number } | undefined
+        let cm = base?.currentMove
+
+        // DOM fallback if viewer doesn't expose currentMove
+        if (typeof cm !== 'number') {
+          const element = document.getElementById(id)
+          const nodes = element?.querySelectorAll('.move, [data-move], [data-index], [data-ply]')
+          if (nodes && nodes.length > 0) {
+            const sel = element?.querySelector('.move.current, .move.selected, .move.active, [aria-current="true"], [data-current="true"]') as HTMLElement | null
+            if (sel) {
+              const idx = Array.prototype.indexOf.call(nodes, sel)
+              if (idx >= 0 && idx < gameData.length) cm = idx
+            }
+          }
+        }
+
+        if (typeof cm === 'number') {
+          let idx = cm
+          if (!Number.isFinite(idx)) return
+          if (idx < 0) idx = 0
+          if (idx >= gameData.length) idx = gameData.length - 1
+          // Ignore updates immediately after a programmatic change to avoid feedback
+          const sinceProgrammatic = Date.now() - programmaticChangeRef.current
+          if (programmaticChangeRef.current && sinceProgrammatic < 300) {
+            // skip
+            // console.log('PGNViewer: poll skipping due to recent programmatic change', sinceProgrammatic)
+          } else if (idx !== currentIndexRef.current) {
+            console.log('PGNViewer: poll detected index change', idx)
+            setCurrentMoveIndex(idx)
+            currentIndexRef.current = idx
+          }
+        }
+      } catch (err) {
+        console.warn('PGNViewer: polling error', err)
+      }
+    }, 200)
+    return () => window.clearInterval(interval)
+  }, [id, gameData.length, currentMoveIndex])
+
+  // When PGN changes, reset index so initial FEN is emitted
+  useEffect(() => {
+    setCurrentMoveIndex(0)
+  }, [pgn])
+
+  // Drop global keyboard fallback to avoid clashes with the viewer's own key handling
 
   return (
     <div
