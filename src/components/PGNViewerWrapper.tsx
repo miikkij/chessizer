@@ -38,7 +38,7 @@ export function PGNViewerWrapper({
   useLayoutEffect(() => {
     console.log('Initializing pgn-viewer with PGN:', gameDescription);
     console.log('Target element ID:', id);
-    
+
     const element = document.getElementById(id);
     console.log('Found target element:', element);
     console.log('Element innerHTML before:', element?.innerHTML);
@@ -58,7 +58,7 @@ export function PGNViewerWrapper({
 
       viewerRef.current = viewer;
       console.log('pgn-viewer initialized successfully:', viewer);
-      
+
       // Log DOM state after initialization
       const elementAfter = document.getElementById(id);
       console.log('Element innerHTML after:', elementAfter?.innerHTML);
@@ -93,11 +93,11 @@ export function PGNViewerWrapper({
   }, [id, gameDescription, timerTime, locale, showResult, boardSize, showFen, pieceStyle, theme, handlePositionChange]);
 
   return (
-    <div 
-      id={id} 
-      className="pgn-viewer-container" 
-      style={{ 
-        minHeight: '500px', 
+    <div
+      id={id}
+      className="pgn-viewer-container"
+      style={{
+        minHeight: '500px',
         minWidth: '500px',
         border: '2px solid red',
         padding: '10px',
