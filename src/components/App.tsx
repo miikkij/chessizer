@@ -246,7 +246,7 @@ ${formatMovesAsPGN(moves)} *`;
                         {/* Sound Status & Controls */}
                         <div className="rounded-lg border bg-card p-4">
                             <h3 className="font-semibold mb-4">🎵 Sound Status & Controls</h3>
-                            
+
                             {/* Status Info */}
                             <div className="space-y-2 text-sm mb-4">
                                 <div>Engine: <span className={isPlaying ? "text-green-600" : "text-red-600"}>
@@ -329,8 +329,8 @@ ${formatMovesAsPGN(moves)} *`;
                                     }}
                                     variant={isPlaying ? "outline" : "default"}
                                     className={`w-full px-4 py-3 font-semibold text-base rounded-lg shadow-lg transition-all transform hover:scale-105 ${isPlaying
-                                            ? "bg-red-500 hover:bg-red-600 text-white border-red-300"
-                                            : "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white border-transparent"
+                                        ? "bg-red-500 hover:bg-red-600 text-white border-red-300"
+                                        : "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white border-transparent"
                                         }`}
                                 >
                                     {isPlaying ? "⏹️ Stop" : "▶️ Play"}
