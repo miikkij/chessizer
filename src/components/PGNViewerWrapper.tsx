@@ -19,8 +19,8 @@ export function PGNViewerWrapper({
   onPositionChange,
   boardSize = '400',
   pieceStyle = 'merida',
-  theme = 'green',
-  showFen = true,
+  theme = 'brown',
+  showFen = false,  // Hide the built-in FEN display to avoid overlap
   showResult = true,
   timerTime = '1',
   locale = 'en'
@@ -37,57 +37,55 @@ export function PGNViewerWrapper({
 
   useLayoutEffect(() => {
     console.log('Initializing pgn-viewer with PGN:', gameDescription);
-    console.log('Target element ID:', id);
 
-    const element = document.getElementById(id);
-    console.log('Found target element:', element);
-    console.log('Element innerHTML before:', element?.innerHTML);
-
-    try {
-      const viewer = pgnView(id, {
-        pgn: gameDescription,
-        timerTime: timerTime,
-        locale: locale,
-        // Removed startPlay - let pgn-viewer use default behavior
-        showResult: showResult,
-        boardSize: boardSize,
-        showFen: showFen,
-        pieceStyle: pieceStyle,
-        theme: theme
-      });
-
-      viewerRef.current = viewer;
-      console.log('pgn-viewer initialized successfully:', viewer);
-
-      // Log DOM state after initialization
-      const elementAfter = document.getElementById(id);
-      console.log('Element innerHTML after:', elementAfter?.innerHTML);
-      console.log('Element children count:', elementAfter?.children.length);
-
-      // Extract initial position
-      if (handlePositionChange && viewer.base && viewer.base.mypgn) {
-        try {
-          const position = viewer.base.mypgn.getMove(0);
-          if (position && position.fen) {
-            handlePositionChange(position.fen, 0);
-          }
-        } catch (error) {
-          console.warn('Error extracting initial position:', error);
-        }
+    // Wait for next tick to ensure DOM element is mounted
+    const timer = setTimeout(() => {
+      const element = document.getElementById(id);
+      if (!element) {
+        console.warn('DOM element not found for pgn-viewer:', id);
+        return;
       }
 
-    } catch (error) {
-      console.error('Error initializing pgn-viewer:', error);
-    }
+      try {
+        const viewer = pgnView(id, {
+          pgn: gameDescription,
+          timerTime: timerTime,
+          locale: locale,
+          // Removed startPlay - let pgn-viewer use default behavior
+          showResult: showResult,
+          boardSize: boardSize,
+          showFen: showFen,
+          pieceStyle: pieceStyle,
+          theme: theme
+        });
+
+        viewerRef.current = viewer;
+        console.log('pgn-viewer initialized successfully');
+
+        // Extract initial position
+        if (handlePositionChange && viewer.base && viewer.base.mypgn) {
+          try {
+            const position = viewer.base.mypgn.getMove(0);
+            if (position && position.fen) {
+              handlePositionChange(position.fen, 0);
+            }
+          } catch (error) {
+            console.warn('Error extracting initial position:', error);
+          }
+        }
+
+      } catch (error) {
+        console.error('Error initializing pgn-viewer:', error);
+      }
+    }, 0);
 
     // Cleanup function
     return () => {
+      clearTimeout(timer);
       if (viewerRef.current) {
-        // pgn-viewer doesn't have explicit cleanup
-        const element = document.getElementById(id);
-        if (element) {
-          element.innerHTML = '';
-        }
+        // Clear the viewer reference but don't manipulate DOM directly
+        // React will handle DOM cleanup
+        viewerRef.current = null;
       }
     };
   }, [id, gameDescription, timerTime, locale, showResult, boardSize, showFen, pieceStyle, theme, handlePositionChange]);
@@ -96,16 +94,7 @@ export function PGNViewerWrapper({
     <div
       id={id}
       className="pgn-viewer-container"
-      style={{
-        minHeight: '500px',
-        minWidth: '500px',
-        border: '2px solid red',
-        padding: '10px',
-        backgroundColor: '#f0f0f0'
-      }}
-    >
-      <div>Loading chess board... (ID: {id})</div>
-    </div>
+    />
   );
 }
 

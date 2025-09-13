@@ -41,6 +41,22 @@ style.textContent = `
   .cg-wrap {
     padding: 0 25px 25px 0 !important;
   }
+  
+  /* Hide pgn-viewer's built-in FEN textarea to prevent overlap with buttons */
+  .fen {
+    display: none !important;
+  }
+  
+  /* Ensure buttons don't overlap with other elements */
+  .buttons {
+    margin: 10px 0 !important;
+    z-index: 10 !important;
+  }
+  
+  /* Make sure the pgn-viewer container has enough space */
+  .pgn-viewer-container {
+    overflow: visible !important;
+  }
 `;
 document.head.appendChild(style);
 
