@@ -4,121 +4,35 @@ import { Slider } from "./ui/slider";
 import PGNViewerWrapper from "./PGNViewerWrapper";
 import PGNLoader from "./PGNLoader";
 import { Chess } from "chess.js";
-
-// Simplified Sound Engine that works with FEN positions
-class SimpleSoundEngine {
-    private audioContext: AudioContext | null = null;
-    private isPlaying = false;
-    private tickInterval: NodeJS.Timeout | null = null;
-    private currentFen = '';
-    private tickIntervalMs = 1000;
-
-    async initialize() {
-        this.audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-        if (this.audioContext.state === 'suspended') {
-            await this.audioContext.resume();
-        }
-    }
-
-    setPosition(fen: string) {
-        this.currentFen = fen;
-    }
-
-    setTickInterval(intervalMs: number) {
-        this.tickIntervalMs = intervalMs;
-        if (this.isPlaying) {
-            this.stop();
-            this.play();
-        }
-    }
-
-    play() {
-        if (this.isPlaying) return;
-        this.isPlaying = true;
-
-        this.tickInterval = setInterval(() => {
-            this.processTick();
-        }, this.tickIntervalMs);
-
-        console.log('Sound engine started');
-    }
-
-    stop() {
-        if (!this.isPlaying) return;
-        this.isPlaying = false;
-
-        if (this.tickInterval) {
-            clearInterval(this.tickInterval);
-            this.tickInterval = null;
-        }
-
-        console.log('Sound engine stopped');
-    }
-
-    private processTick() {
-        if (!this.currentFen || !this.audioContext) return;
-
-        // TODO: Convert FEN position to sound
-        console.log('Processing tick for FEN:', this.currentFen);
-
-        // Placeholder: Play a simple beep based on material count
-        const chess = new Chess(this.currentFen);
-        const board = chess.board();
-        let pieceCount = 0;
-
-        board.flat().forEach(square => {
-            if (square) pieceCount++;
-        });
-
-        // Play beep with frequency based on piece count
-        const frequency = 220 + (pieceCount * 10);
-        this.playBeep(frequency, 0.1, 0.1);
-    }
-
-    private playBeep(frequency: number, duration: number, volume: number) {
-        if (!this.audioContext) return;
-
-        const oscillator = this.audioContext.createOscillator();
-        const gainNode = this.audioContext.createGain();
-
-        oscillator.connect(gainNode);
-        gainNode.connect(this.audioContext.destination);
-
-        oscillator.frequency.value = frequency;
-        oscillator.type = 'sine';
-
-        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
-        gainNode.gain.linearRampToValueAtTime(volume, this.audioContext.currentTime + 0.01);
-        gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + duration);
-
-        oscillator.start(this.audioContext.currentTime);
-        oscillator.stop(this.audioContext.currentTime + duration);
-    }
-}
+import { ToneEngine } from "../audio/ToneEngine";
 
 function App() {
-    const [soundEngine] = useState(() => new SimpleSoundEngine());
+    const [soundEngine] = useState(() => new ToneEngine());
     const [isPlaying, setIsPlaying] = useState(false);
     const [tickInterval, setTickInterval] = useState(1000);
     const [gameSource, setGameSource] = useState<'start' | 'random' | 'endgame'>('start');
     const [pgnData, setPgnData] = useState('');
     const [currentFen, setCurrentFen] = useState('');
+    const [currentPreset, setCurrentPreset] = useState("harmonic_layers");
 
     // Initialize sound engine
     useEffect(() => {
-        soundEngine.initialize();
-    }, [soundEngine]);
+        soundEngine.initialize(currentPreset);
+    }, [soundEngine, currentPreset]);
 
     // Update sound engine when position changes
     useEffect(() => {
         if (currentFen) {
+            console.log('App: Setting position to:', currentFen);
             soundEngine.setPosition(currentFen);
+        } else {
+            console.log('App: No current FEN available');
         }
     }, [soundEngine, currentFen]);
 
     const handlePlay = async () => {
         if (!isPlaying) {
-            await soundEngine.initialize();
+            await soundEngine.initialize(currentPreset);
             soundEngine.play();
             setIsPlaying(true);
         } else {
@@ -130,7 +44,12 @@ function App() {
     const handleTickIntervalChange = (value: number[]) => {
         const newInterval = value[0];
         setTickInterval(newInterval);
-        soundEngine.setTickInterval(newInterval);
+        soundEngine.setTickRate(newInterval);
+    };
+
+    const handlePresetChange = (presetId: string) => {
+        setCurrentPreset(presetId);
+        soundEngine.setPreset(presetId);
     };
 
     const generatePGN = useCallback((source: 'start' | 'random' | 'endgame') => {
@@ -266,13 +185,14 @@ ${formatMovesAsPGN(moves)} *`;
                         <div className="flex items-center gap-2">
                             <label className="text-sm font-medium">Sound Preset:</label>
                             <select
+                                value={currentPreset}
+                                onChange={(e) => handlePresetChange(e.target.value)}
                                 className="px-3 py-1.5 text-sm border rounded-md bg-background"
                                 title="Select sound preset"
                             >
-                                <option value="harmonic">Harmonic Layers</option>
-                                <option value="rhythm">Rhythm Focus</option>
-                                <option value="electro">Electro Scene</option>
-                                <option value="ambient">Ambient Clouds</option>
+                                <option value="harmonic_layers">Harmonic Layers</option>
+                                <option value="electro_scene">Electro Scene</option>
+                                <option value="ambient_clouds">Ambient Clouds</option>
                             </select>
                         </div>
 
@@ -337,7 +257,9 @@ ${formatMovesAsPGN(moves)} *`;
                                     {isPlaying ? "Playing" : "Stopped"}
                                 </span></div>
                                 <div>Tick Rate: <span className="font-medium">{(1000 / tickInterval).toFixed(1)} Hz</span></div>
-                                <div>Preset: <span className="font-medium">Harmonic Layers</span></div>
+                                <div>Preset: <span className="font-medium">
+                                    {soundEngine.getAvailablePresets().find(p => p.id === currentPreset)?.name || "Harmonic Layers"}
+                                </span></div>
                             </div>
                         </div>
 
