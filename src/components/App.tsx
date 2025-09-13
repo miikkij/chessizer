@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "./ui/button";
 // import { Slider } from "./ui/slider";
 import PGNViewerWrapper from "./PGNViewerWrapper";
 import PGNLoader from "./PGNLoader";
 import { Chess } from "chess.js";
 import { ToneEngine } from "../audio/ToneEngine";
+import { animate } from 'animejs';
+import { Toaster, toast } from 'react-hot-toast';
 
 function App() {
     const [soundEngine] = useState(() => new ToneEngine());
@@ -15,10 +17,25 @@ function App() {
     const [pgnData, setPgnData] = useState('');
     const [currentFen, setCurrentFen] = useState('');
     const [currentPreset, setCurrentPreset] = useState("harmonic_layers");
+    const appRef = useRef<HTMLDivElement>(null);
 
     // Initialize sound engine
     useEffect(() => {
         soundEngine.initialize(currentPreset);
+        toast.success('🎵 Chessizer loaded successfully!');
+
+        // Add entrance animation
+        setTimeout(() => {
+            if (appRef.current) {
+                animate(appRef.current.querySelectorAll('.animate-in'), {
+                    opacity: [0, 1],
+                    translateY: [30, 0],
+                    duration: 800,
+                    delay: (el, i) => i * 100,
+                    easing: 'easeOutCubic'
+                });
+            }
+        }, 100);
     }, [soundEngine, currentPreset]);
 
     // Update sound engine when position changes
@@ -158,11 +175,25 @@ ${formatMovesAsPGN(moves)} *`;
     }, []);
 
     return (
-        <div className="min-h-screen bg-background">
-            {/* Top Navigation */}
-            <div className="border-b bg-card/50 backdrop-blur supports-[backdrop-filter]:bg-card/60">
-                <div className="container mx-auto px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-4">
+        <div ref={appRef} className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+            <Toaster position="top-right" />
+
+            {/* Professional Header */}
+            <header className="bg-white/80 backdrop-blur-sm shadow-sm border-b sticky top-0 z-50 animate-in">
+                <div className="container mx-auto px-6 py-4">
+                    <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent text-center mb-2">
+                        🎵 Chessizer - Sonic Chess Experience 🎵
+                    </h1>
+                    <p className="text-center text-gray-600 text-sm">
+                        Experience chess through sound - Turn positions into melodies
+                    </p>
+                </div>
+            </header>
+
+            {/* Enhanced Navigation Panel */}
+            <div className="bg-white/70 backdrop-blur-sm border-b shadow-sm animate-in">
+                <div className="container mx-auto px-6 py-4">
+                    <div className="flex flex-wrap items-center justify-center gap-6">
                         {/* PGN Loader */}
                         <PGNLoader onGameLoaded={(fens) => {
                             // Convert FEN array back to PGN - simplified for now
@@ -173,94 +204,31 @@ ${formatMovesAsPGN(moves)} *`;
                             }
                         }} />
 
-                        {/* Game Source Selector */}
-                        <div className="flex items-center gap-2">
-                            <label className="text-sm font-medium">Game Source:</label>
-                            <select
-                                value={gameSource}
-                                onChange={(e) => handleGameSourceChange(e.target.value as 'start' | 'random' | 'endgame')}
-                                className="px-3 py-1.5 text-sm border rounded-md bg-background"
-                                title="Select game source"
-                            >
-                                <option value="start">Start Position</option>
-                                <option value="random">Random Game</option>
-                                <option value="endgame">Endgame</option>
-                            </select>
-                        </div>
 
-                        {/* Sound Preset Selector */}
-                        <div className="flex items-center gap-2">
-                            <label className="text-sm font-medium">Sound Preset:</label>
-                            <select
-                                value={currentPreset}
-                                onChange={(e) => handlePresetChange(e.target.value)}
-                                className="px-3 py-1.5 text-sm border rounded-md bg-background"
-                                title="Select sound preset"
-                            >
-                                <option value="harmonic_layers">Harmonic Layers</option>
-                                <option value="electro_scene">Electro Scene</option>
-                                <option value="ambient_clouds">Ambient Clouds</option>
-                            </select>
-                        </div>
-
-                        {/* Tick Interval */}
-                        <div className="flex items-center gap-2">
-                            <label className="text-sm font-medium">Tick Interval:</label>
-                            <input
-                                type="range"
-                                min="250"
-                                max="5000"
-                                step="250"
-                                value={tickInterval}
-                                onChange={(e) => handleTickIntervalChange([parseInt(e.target.value)])}
-                                className="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                                title="Tick Interval"
-                            />
-                            <span className="text-xs text-muted-foreground w-12">
-                                {tickInterval}ms
-                            </span>
-                        </div>
-
-                        {/* Volume Control */}
-                        <div className="flex items-center gap-2">
-                            <label className="text-sm font-medium">Volume:</label>
-                            <input
-                                type="range"
-                                min="0"
-                                max="1"
-                                step="0.1"
-                                value={masterVolume}
-                                onChange={(e) => handleVolumeChange([parseFloat(e.target.value)])}
-                                className="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                                title="Volume"
-                            />
-                            <span className="text-xs text-muted-foreground w-12">
-                                {Math.round(masterVolume * 100)}%
-                            </span>
-                        </div>
-
-                        {/* Play/Pause Button */}
-                        <Button onClick={handlePlay} variant={isPlaying ? "outline" : "default"}>
-                            {isPlaying ? "Stop" : "Play"}
-                        </Button>
                     </div>
                 </div>
             </div>
 
-            {/* Main Content */}
-            <div className="container mx-auto px-4 py-6">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Chess Board */}
-                    <div className="lg:col-span-2">
-                        <div className="rounded-lg border bg-card p-6">
-                            <h2 className="text-xl font-semibold mb-4">Chess Board</h2>
-                            <PGNViewerWrapper
-                                pgn={pgnData}
-                                onPositionChange={handlePositionChange}
-                                pieceStyle="merida"
-                                theme="brown"
-                                boardSize="400"
-                            />
+            {/* Enhanced Main Content */}
+            <main className="container mx-auto px-6 py-8">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Chess Board Section */}
+                    <div className="lg:col-span-2 animate-in">
+                        <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-xl border border-white/50 p-8 hover:shadow-2xl transition-all duration-300">
+                            <h2 className="text-2xl font-bold bg-gradient-to-r from-gray-700 to-gray-900 bg-clip-text text-transparent mb-6 flex items-center">
+                                ♟️ Chess Board
+                            </h2>
+                            <div className="flex justify-center">
+                                <div className="rounded-xl overflow-hidden shadow-lg border-4 border-white/70">
+                                    <PGNViewerWrapper
+                                        pgn={pgnData}
+                                        onPositionChange={handlePositionChange}
+                                        pieceStyle="merida"
+                                        theme="brown"
+                                        boardSize="400"
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -275,10 +243,12 @@ ${formatMovesAsPGN(moves)} *`;
                             </div>
                         </div>
 
-                        {/* Sound Status */}
+                        {/* Sound Status & Controls */}
                         <div className="rounded-lg border bg-card p-4">
-                            <h3 className="font-semibold mb-2">Sound Status</h3>
-                            <div className="space-y-1 text-sm">
+                            <h3 className="font-semibold mb-4">🎵 Sound Status & Controls</h3>
+                            
+                            {/* Status Info */}
+                            <div className="space-y-2 text-sm mb-4">
                                 <div>Engine: <span className={isPlaying ? "text-green-600" : "text-red-600"}>
                                     {isPlaying ? "Playing" : "Stopped"}
                                 </span></div>
@@ -287,18 +257,99 @@ ${formatMovesAsPGN(moves)} *`;
                                     {soundEngine.getAvailablePresets().find(p => p.id === currentPreset)?.name || "Harmonic Layers"}
                                 </span></div>
                             </div>
+
+                            {/* Sound Controls */}
+                            <div className="space-y-4">
+                                {/* Sound Preset Selector */}
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-semibold text-gray-700">Preset:</label>
+                                    <select
+                                        value={currentPreset}
+                                        onChange={(e) => {
+                                            handlePresetChange(e.target.value);
+                                            animate('select', {
+                                                scale: [1, 1.05, 1],
+                                                duration: 200
+                                            });
+                                        }}
+                                        className="px-3 py-2 text-sm border-2 border-purple-200 rounded-lg bg-white/80 hover:border-purple-400 transition-all focus:border-purple-500 focus:ring-2 focus:ring-purple-200 w-full"
+                                        title="Select sound preset"
+                                    >
+                                        <option value="harmonic_layers">Harmonic Layers</option>
+                                        <option value="electro_scene">Electro Scene</option>
+                                        <option value="ambient_clouds">Ambient Clouds</option>
+                                    </select>
+                                </div>
+
+                                {/* Tick Interval */}
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-semibold text-gray-700 flex items-center justify-between">
+                                        <span>Tick Interval:</span>
+                                        <span className="text-xs font-medium text-gray-600">{tickInterval}ms</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="250"
+                                        max="5000"
+                                        step="250"
+                                        value={tickInterval}
+                                        onChange={(e) => handleTickIntervalChange([parseInt(e.target.value)])}
+                                        className="w-full h-2 bg-gradient-to-r from-blue-300 to-purple-300 rounded-lg appearance-none cursor-pointer slider hover:from-blue-400 hover:to-purple-400 transition-all"
+                                        title="Tick Interval"
+                                    />
+                                </div>
+
+                                {/* Volume Control */}
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-semibold text-gray-700 flex items-center justify-between">
+                                        <span>Volume:</span>
+                                        <span className="text-xs font-medium text-gray-600">{Math.round(masterVolume * 100)}%</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="1"
+                                        step="0.1"
+                                        value={masterVolume}
+                                        onChange={(e) => handleVolumeChange([parseFloat(e.target.value)])}
+                                        className="w-full h-2 bg-gradient-to-r from-green-300 to-blue-300 rounded-lg appearance-none cursor-pointer slider hover:from-green-400 hover:to-blue-400 transition-all"
+                                        title="Volume"
+                                    />
+                                </div>
+
+                                {/* Play/Pause Button */}
+                                <Button
+                                    onClick={(e) => {
+                                        handlePlay();
+                                        // Add click animation
+                                        animate(e.currentTarget, {
+                                            scale: [1, 0.95, 1.05, 1],
+                                            duration: 300
+                                        });
+                                    }}
+                                    variant={isPlaying ? "outline" : "default"}
+                                    className={`w-full px-4 py-3 font-semibold text-base rounded-lg shadow-lg transition-all transform hover:scale-105 ${isPlaying
+                                            ? "bg-red-500 hover:bg-red-600 text-white border-red-300"
+                                            : "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white border-transparent"
+                                        }`}
+                                >
+                                    {isPlaying ? "⏹️ Stop" : "▶️ Play"}
+                                </Button>
+                            </div>
                         </div>
 
-                        {/* PGN Preview */}
-                        <div className="rounded-lg border bg-card p-4">
-                            <h3 className="font-semibold mb-2">PGN Data</h3>
-                            <div className="bg-muted p-2 rounded text-xs font-mono max-h-32 overflow-y-auto">
-                                {pgnData || 'No game loaded'}
+                        {/* Enhanced PGN Preview */}
+                        <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-xl border border-white/50 p-6 hover:shadow-2xl transition-all duration-300">
+                            <h3 className="font-bold text-lg bg-gradient-to-r from-gray-700 to-gray-900 bg-clip-text text-transparent mb-4 flex items-center">
+                                📝 PGN Data
+                            </h3>
+                            <div className="bg-gray-50/80 p-4 rounded-lg text-xs font-mono max-h-32 overflow-y-auto border border-gray-200 shadow-inner">
+                                {pgnData || 'No game loaded - Select a game source above'}
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
+            </main>
         </div>
     );
 }
