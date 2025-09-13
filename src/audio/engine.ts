@@ -36,6 +36,12 @@ export class AudioAgent {
     this.synth = new Tone.PolySynth(Tone.Synth, opts).toDestination();
   }
 
+  start(pieces: Piece[], tickSeconds: number) {
+    Tone.Transport.cancel();
+    Tone.Transport.scheduleRepeat(() => this.playBoard(pieces), tickSeconds);
+    Tone.Transport.start();
+  }
+
   playBoard(pieces: Piece[]) {
     const max = this.preset.engine.polyphony;
     pieces.slice(0, max).forEach((p) => {

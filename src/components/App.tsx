@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Button } from './ui/button'
 import presets from '../../configs/sound-presets.json'
 import games from '../../configs/game-presets.json'
@@ -16,10 +17,25 @@ const pieces = decodeBoardString(startPreset.boardString)
 const agent = new AudioAgent(harmonic)
 
 export default function App() {
+  const [tick, setTick] = useState(1)
+  const start = () => agent.start(pieces, tick)
+
   return (
     <div className="p-4 space-y-4">
       <h1 className="text-2xl font-bold">Chessboard Sound</h1>
-      <Button onClick={() => agent.playBoard(pieces)}>Play Start Board</Button>
+      <div className="space-y-2">
+        <label htmlFor="tick">Tick interval: {tick.toFixed(2)}s</label>
+        <input
+          id="tick"
+          type="range"
+          min={0.25}
+          max={5}
+          step={0.25}
+          value={tick}
+          onChange={(e) => setTick(parseFloat(e.target.value))}
+        />
+      </div>
+      <Button onClick={start}>Play Start Board</Button>
     </div>
   )
 }
