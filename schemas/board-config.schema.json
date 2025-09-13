@@ -1,15 +1,55 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "BoardCompactEncoding",
+  "title": "GamePresetConfiguration",
   "type": "object",
   "properties": {
-    "boardString": {
+    "version": {
       "type": "string",
-      "pattern": "^[0-9a-fA-F]{256}$",
-      "description": "Compact encoding. 64 cells. Each cell is two bytes in hex. First byte is piece code. Second byte is flags."
+      "description": "Schema version"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this configuration was generated"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description of this configuration"
+    },
+    "presets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for this preset"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["fixed", "generator"],
+            "description": "Whether this is a fixed position or generated"
+          },
+          "pgn": {
+            "type": "string",
+            "description": "PGN format game data"
+          },
+          "generator": {
+            "type": "object",
+            "description": "Generator configuration for dynamic presets"
+          },
+          "note": {
+            "type": "string",
+            "description": "Description or notes about this preset"
+          }
+        },
+        "required": ["id", "name", "type"]
+      }
     }
   },
-  "required": [
-    "boardString"
-  ]
+  "required": ["version", "presets"]
 }

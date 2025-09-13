@@ -1,3 +1,28 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Chessground styling improvements */
+.chessground-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+}
+
+.chessground {
+  border: 4px solid #374151;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Ensure Chessground board pieces are visible */
+.cg-wrap {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Custom board styling to match our color scheme */
+.chessground cg-board {
+  background-color: #d97706;
+}
