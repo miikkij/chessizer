@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "name": "demoEarconRow",
+  "transport": { "bpm": 120, "quantize": "16n" },
+  "limits": { "maxConcurrentVoices": 4, "onsetOffsetMs": [20, 50], "hardHeadroomDb": 6, "clipLengthMs": 2200 },
+  "voices": {
+    "synthPawn": { "type": "PolySynth", "voice": "Synth", "chain": [{ "node": "Panner", "options": { "pan": 0 } }], "toDestination": true, "volumeDb": -6 },
+    "synthKnight": { "type": "PolySynth", "voice": "Synth", "chain": [{ "node": "Panner", "options": { "pan": 0 } }], "toDestination": true },
+    "synthGlide": { "type": "Synth", "options": { "portamento": 0.02 }, "chain": [{ "node": "Panner", "options": { "pan": 0 } }], "toDestination": true },
+    "synthPerc": { "type": "Synth", "options": { "oscillator": { "type": "square" }, "envelope": { "attack": 0.001, "decay": 0.12, "sustain": 0.0, "release": 0.08 } }, "chain": [{ "node": "Panner", "options": { "pan": 0 } }], "toDestination": true }
+  },
+  "mappings": {
+    "pieceEarcons": {
+      "pawn": { "voiceId": "synthPawn", "register": { "white": "C5", "black": "C3" }, "pattern": [{ "t": 0, "n": "+0", "d": 120, "v": 0.8 }, { "t": 140, "n": "+2", "d": 100, "v": 0.8 }] },
+      "knight": { "voiceId": "synthKnight", "register": { "white": "A4", "black": "A3" }, "pattern": [{ "t": 0, "n": "+0", "d": 80, "v": 0.85 }, { "t": 110, "n": "+3", "d": 90, "v": 0.85 }, { "t": 220, "n": "-1", "d": 90, "v": 0.85 }] },
+      "bishop": { "voiceId": "synthKnight", "register": { "white": "E5", "black": "E3" }, "pattern": [{ "t": 0, "n": "+0", "d": 160, "v": 0.8 }, { "t": 170, "n": "+2", "d": 140, "v": 0.8 }] },
+      "rook":   { "voiceId": "synthKnight", "register": { "white": "G4", "black": "G3" }, "pattern": [{ "t": 0, "chord": ["+0", "+7", "+12"], "d": 120, "v": 0.9 }] },
+      "queen":  { "voiceId": "synthKnight", "register": { "white": "C6", "black": "C4" }, "pattern": [{ "t": 0, "arpeggio": ["+0", "+4", "+7", "+12"], "stepMs": 40, "d": 220, "v": 0.9 }] },
+      "king":   { "voiceId": "synthKnight", "register": { "white": "C4", "black": "C2" }, "pattern": [{ "t": 0, "dyad": ["+0", "+7"], "d": 180, "v": 0.8 }] }
+    }
+  },
+  "colors": { "white": { "pan": -0.3 }, "black": { "pan": 0.3 } },
+  "traversal": { "strategy": "ringsFromKing", "params": { "side": "turn", "cellsPerTick": 64 }, "tickDurationMs": 1000, "concurrency": { "maxVoices": 8, "onsetOffsetMs": [10, 35] } },
+  "events": {
+    "check": { "voiceId": "synthGlide", "white": { "glide": { "from": "B5", "to": "D6", "durationMs": 200 }, "pan": -0.3 }, "black": { "glide": { "from": "D4", "to": "B3", "durationMs": 200 }, "pan": 0.3 } },
+    "capture": { "voiceId": "synthPerc", "white": { "note": "C5", "durationMs": 140, "pan": -0.2 }, "black": { "note": "C3", "durationMs": 140, "pan": 0.2 } }
+  },
+  "diagnostics": { "logLevel": "info", "emitScheduleLog": true }
+}

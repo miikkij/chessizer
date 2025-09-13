@@ -3,12 +3,14 @@ import { Button } from "./ui/button";
 // import { Slider } from "./ui/slider";
 import PGNViewerWrapper from "./PGNViewerWrapper";
 import PGNLoader from "./PGNLoader";
-import { ToneEngine } from "../audio/ToneEngine";
+// import { ToneEngine } from "../audio/ToneEngine";
+import { SoundAgent } from "../audio/SoundAgent";
 import { animate } from 'animejs';
 import { Toaster, toast } from 'react-hot-toast';
 
 function App() {
-    const [soundEngine] = useState(() => new ToneEngine());
+    // const [soundEngine] = useState(() => new ToneEngine());
+    const [agent, setAgent] = useState<SoundAgent | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [tickInterval, setTickInterval] = useState(1000);
     const [masterVolume, setMasterVolume] = useState(0.7); // Default volume
@@ -18,10 +20,21 @@ function App() {
     const [currentPreset, setCurrentPreset] = useState("harmonic_layers");
     const appRef = useRef<HTMLDivElement>(null);
 
-    // Initialize sound engine
+    // Initialize sound agent and load config
     useEffect(() => {
-        soundEngine.initialize(currentPreset);
-        toast.success('🎵 Chessizer loaded successfully!');
+        let mounted = true;
+        (async () => {
+            try {
+                const cfg = await (await fetch('/configs/sound-agent-demo.json')).json();
+                if (!mounted) return;
+                const a = new SoundAgent(cfg);
+                setAgent(a);
+                toast.success('🎵 SoundAgent ready');
+            } catch (e) {
+                console.error('Failed to load SoundAgent config', e);
+                toast.error('Failed to load audio config');
+            }
+        })();
 
         // Add entrance animation
         setTimeout(() => {
@@ -30,30 +43,30 @@ function App() {
                     opacity: [0, 1],
                     translateY: [30, 0],
                     duration: 800,
-                    delay: (el, i) => i * 100,
+                    delay: (_unused, i) => i * 100,
                     easing: 'easeOutCubic'
                 });
             }
         }, 100);
-    }, [soundEngine, currentPreset]);
+        return () => { mounted = false };
+    }, [currentPreset]);
 
-    // Update sound engine when position changes
+    // Keep SoundAgent in sync with current position
     useEffect(() => {
-        if (currentFen) {
-            console.log('App: Setting ToneEngine position to:', currentFen);
-            soundEngine.setPosition(currentFen);
-        } else {
-            console.log('App: No current FEN available');
+        if (agent && currentFen) {
+            agent.setPosition(currentFen);
         }
-    }, [soundEngine, currentFen]);
+    }, [agent, currentFen]);
 
     const handlePlay = async () => {
+        if (!agent || !currentFen) return;
         if (!isPlaying) {
-            await soundEngine.initialize(currentPreset);
-            soundEngine.play();
+            await agent.init();
+            agent.setTickDuration(tickInterval);
+            await agent.start();
             setIsPlaying(true);
         } else {
-            soundEngine.stop();
+            agent.stop();
             setIsPlaying(false);
         }
     };
@@ -61,18 +74,17 @@ function App() {
     const handleTickIntervalChange = (value: number[]) => {
         const newInterval = value[0];
         setTickInterval(newInterval);
-        soundEngine.setTickRate(newInterval);
+        agent?.setTickDuration(newInterval);
     };
 
     const handleVolumeChange = (value: number[]) => {
         const newVolume = value[0];
         setMasterVolume(newVolume);
-        soundEngine.setMasterVolume(newVolume);
+        agent?.setMasterVolume(newVolume);
     };
 
     const handlePresetChange = (presetId: string) => {
         setCurrentPreset(presetId);
-        soundEngine.setPreset(presetId);
     };
 
     // Game presets with interesting chess games
@@ -274,9 +286,7 @@ function App() {
                                     {isPlaying ? "Playing" : "Stopped"}
                                 </span></div>
                                 <div>Tick Rate: <span className="font-medium">{(1000 / tickInterval).toFixed(1)} Hz</span></div>
-                                <div>Preset: <span className="font-medium">
-                                    {soundEngine.getAvailablePresets().find(p => p.id === currentPreset)?.name || "Harmonic Layers"}
-                                </span></div>
+                                <div>Engine: <span className="font-medium">SoundAgent</span></div>
                             </div>
 
                             {/* Sound Controls */}
