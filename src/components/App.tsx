@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "./ui/button";
-import { Slider } from "./ui/slider";
+// import { Slider } from "./ui/slider";
 import PGNViewerWrapper from "./PGNViewerWrapper";
 import PGNLoader from "./PGNLoader";
 import { Chess } from "chess.js";
@@ -10,6 +10,7 @@ function App() {
     const [soundEngine] = useState(() => new ToneEngine());
     const [isPlaying, setIsPlaying] = useState(false);
     const [tickInterval, setTickInterval] = useState(1000);
+    const [masterVolume, setMasterVolume] = useState(0.7); // Default volume
     const [gameSource, setGameSource] = useState<'start' | 'random' | 'endgame'>('start');
     const [pgnData, setPgnData] = useState('');
     const [currentFen, setCurrentFen] = useState('');
@@ -23,7 +24,7 @@ function App() {
     // Update sound engine when position changes
     useEffect(() => {
         if (currentFen) {
-            console.log('App: Setting position to:', currentFen);
+            console.log('App: Setting ToneEngine position to:', currentFen);
             soundEngine.setPosition(currentFen);
         } else {
             console.log('App: No current FEN available');
@@ -45,6 +46,12 @@ function App() {
         const newInterval = value[0];
         setTickInterval(newInterval);
         soundEngine.setTickRate(newInterval);
+    };
+
+    const handleVolumeChange = (value: number[]) => {
+        const newVolume = value[0];
+        setMasterVolume(newVolume);
+        soundEngine.setMasterVolume(newVolume);
     };
 
     const handlePresetChange = (presetId: string) => {
@@ -132,7 +139,7 @@ ${formatMovesAsPGN(moves)} *`;
     };
 
     const handlePositionChange = (fen: string, moveNumber: number) => {
-        console.log('Position changed:', fen, 'move:', moveNumber);
+        console.log('App: Position changed:', fen, 'move:', moveNumber);
         setCurrentFen(fen);
     };
 
@@ -199,17 +206,36 @@ ${formatMovesAsPGN(moves)} *`;
                         {/* Tick Interval */}
                         <div className="flex items-center gap-2">
                             <label className="text-sm font-medium">Tick Interval:</label>
-                            <div className="w-24">
-                                <Slider
-                                    value={[tickInterval]}
-                                    onValueChange={handleTickIntervalChange}
-                                    min={250}
-                                    max={5000}
-                                    step={250}
-                                />
-                            </div>
+                            <input
+                                type="range"
+                                min="250"
+                                max="5000"
+                                step="250"
+                                value={tickInterval}
+                                onChange={(e) => handleTickIntervalChange([parseInt(e.target.value)])}
+                                className="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                                title="Tick Interval"
+                            />
                             <span className="text-xs text-muted-foreground w-12">
                                 {tickInterval}ms
+                            </span>
+                        </div>
+
+                        {/* Volume Control */}
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm font-medium">Volume:</label>
+                            <input
+                                type="range"
+                                min="0"
+                                max="1"
+                                step="0.1"
+                                value={masterVolume}
+                                onChange={(e) => handleVolumeChange([parseFloat(e.target.value)])}
+                                className="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                                title="Volume"
+                            />
+                            <span className="text-xs text-muted-foreground w-12">
+                                {Math.round(masterVolume * 100)}%
                             </span>
                         </div>
 

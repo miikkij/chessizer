@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { useLayoutEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { pgnView, type PgnViewerApi } from '@mliebelt/pgn-viewer';
+import { Chess } from 'chess.js';
 import { v4 as uuidv4 } from 'uuid';
 
 interface PGNViewerWrapperProps {
@@ -28,6 +29,8 @@ export function PGNViewerWrapper({
   const gameDescription = pgn || '[Event "Empty"]\n[Site "Chessizer"]\n[Result "*"]\n\n*';
   const id = useMemo(() => 'board-' + uuidv4(), []); // Stable ID across re-renders
   const viewerRef = useRef<PgnViewerApi | null>(null);
+  const chessRef = useRef<Chess>(new Chess());
+  const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
 
   const handlePositionChange = useCallback((fen: string, moveIndex: number) => {
     if (onPositionChange) {
@@ -35,8 +38,94 @@ export function PGNViewerWrapper({
     }
   }, [onPositionChange]);
 
+  // Parse the PGN and build move history using chess.js
+  const gameData = useMemo(() => {
+    const chess = new Chess();
+    const moves: { fen: string; san: string }[] = [];
+
+    console.log('PGNViewer: Parsing PGN:', gameDescription);
+
+    // Add starting position
+    moves.push({ fen: chess.fen(), san: '' });
+
+    try {
+      // Simple PGN parsing - extract moves between headers and result
+      let gameContent = gameDescription;
+
+      // Remove headers (lines starting with [)
+      gameContent = gameContent.replace(/\[[^\]]*\]/g, '');
+
+      // Remove result markers
+      gameContent = gameContent.replace(/\s*(1-0|0-1|1\/2-1\/2|\*)\s*$/g, '');
+
+      // Extract move text and split into individual moves
+      const moveText = gameContent.trim();
+      console.log('PGNViewer: Extracted move text:', moveText);
+
+      if (moveText && moveText !== '*') {
+        // Remove move numbers and split by spaces
+        const tokens = moveText.replace(/\d+\./g, '').split(/\s+/).filter(token =>
+          token && token !== '*' && !token.match(/^(1-0|0-1|1\/2-1\/2)$/)
+        );
+
+        console.log('PGNViewer: Parsed tokens:', tokens);
+
+        for (const token of tokens) {
+          try {
+            const move = chess.move(token);
+            if (move) {
+              moves.push({ fen: chess.fen(), san: move.san });
+              console.log(`PGNViewer: Applied move ${token} -> ${move.san}, FEN: ${chess.fen()}`);
+            }
+          } catch (err) {
+            console.warn('Invalid move:', token, err);
+            break;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Error parsing PGN:', error);
+    }
+
+    console.log('PGNViewer: Parsed', moves.length, 'positions');
+    return moves;
+  }, [gameDescription]);
+
+  // Update the chess reference when game data changes
+  useLayoutEffect(() => {
+    chessRef.current = new Chess();
+    // Replay moves to current position
+    for (let i = 0; i < Math.min(currentMoveIndex + 1, gameData.length); i++) {
+      if (i > 0 && gameData[i].san) {
+        try {
+          chessRef.current.move(gameData[i].san);
+        } catch (err) {
+          console.warn('Error replaying move:', gameData[i].san, err);
+          break;
+        }
+      }
+    }
+  }, [gameData, currentMoveIndex]);
+
+  // Send position changes to parent
+  useLayoutEffect(() => {
+    if (gameData.length > 0 && currentMoveIndex < gameData.length) {
+      const position = gameData[currentMoveIndex];
+      console.log('PGNViewer: Position changed to', currentMoveIndex, position.fen);
+      console.log('PGNViewer: Game has', gameData.length, 'positions total');
+      handlePositionChange(position.fen, currentMoveIndex);
+    } else {
+      console.log('PGNViewer: Invalid position data', {
+        gameDataLength: gameData.length,
+        currentMoveIndex,
+        validIndex: currentMoveIndex < gameData.length
+      });
+    }
+  }, [currentMoveIndex, gameData, handlePositionChange]);
+
   useLayoutEffect(() => {
     console.log('Initializing pgn-viewer with PGN:', gameDescription);
+    console.log('Parsed game data:', gameData.length, 'positions');
 
     // Wait for next tick to ensure DOM element is mounted
     const timer = setTimeout(() => {
@@ -47,8 +136,7 @@ export function PGNViewerWrapper({
       }
 
       try {
-        // Try different initialization approaches
-        console.log('Attempting pgn-viewer initialization...');
+        console.log('Creating pgn-viewer...');
 
         const viewer = pgnView(id, {
           pgn: gameDescription,
@@ -59,130 +147,71 @@ export function PGNViewerWrapper({
           showFen: showFen,
           pieceStyle: pieceStyle,
           theme: theme,
-          // Force parsing of PGN immediately
           startPlay: false
         });
 
         viewerRef.current = viewer;
+        console.log('pgn-viewer created successfully');
 
-        // Give pgn-viewer some time to parse the PGN
-        setTimeout(() => {
-          console.log('pgn-viewer initialized successfully');
-          console.log('Viewer object structure:', viewer);
-          console.log('Viewer.base:', viewer.base);
+        // Set up a mutation observer to watch for DOM changes
+        // This will detect when the user navigates through moves
+        const observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => {
+            // Look for changes in the move list or board state
+            if (mutation.type === 'childList' || mutation.type === 'attributes') {
+              // Extract current move from DOM
+              const moveElement = element.querySelector('.current-move, .move.current, [data-move].current');
+              if (moveElement) {
+                const moveAttr = moveElement.getAttribute('data-move') ||
+                  moveElement.getAttribute('data-index') ||
+                  moveElement.textContent;
 
-          if (viewer.base) {
-            console.log('Viewer.base.mypgn:', viewer.base.mypgn);
-            console.log('Available methods on viewer.base:', Object.keys(viewer.base));
-
-            // Try alternative ways to access the chess game
-            if (viewer.base.chess) {
-              console.log('Viewer.base.chess:', viewer.base.chess);
-              console.log('Viewer.base.chess methods:', Object.keys(viewer.base.chess));
-            }
-          }
-
-          // Try to trigger PGN parsing manually if needed
-          if (viewer.base && typeof viewer.base.generateBoard === 'function') {
-            console.log('Calling generateBoard to ensure PGN is parsed...');
-            try {
-              viewer.base.generateBoard();
-              console.log('generateBoard called successfully');
-              // Check again after generateBoard
-              console.log('After generateBoard - mypgn:', viewer.base.mypgn);
-            } catch (err) {
-              console.warn('Error calling generateBoard:', err);
-            }
-          }
-        }, 100);
-
-        // Extract initial position with more debugging
-        if (handlePositionChange && viewer.base && viewer.base.mypgn) {
-          try {
-            console.log('Attempting to get initial position...');
-            const position = viewer.base.mypgn.getMove(0);
-            console.log('getMove(0) result:', position);
-            if (position && position.fen) {
-              console.log('PGNViewer: Initial position FEN:', position.fen);
-              handlePositionChange(position.fen, 0);
-            } else {
-              console.warn('No FEN found in position:', position);
-
-              // Try alternative methods to get current position
-              if (viewer.base.mypgn.fen) {
-                console.log('Using viewer.base.mypgn.fen:', viewer.base.mypgn.fen);
-                handlePositionChange(viewer.base.mypgn.fen(), 0);
-              } else if (viewer.base.mypgn.getCurrentFen) {
-                console.log('Using getCurrentFen method');
-                handlePositionChange(viewer.base.mypgn.getCurrentFen(), 0);
-              } else {
-                // Fallback to starting position FEN
-                const startingFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-                console.log('Fallback to starting position FEN');
-                handlePositionChange(startingFen, 0);
-              }
-            }
-          } catch (error) {
-            console.error('Error extracting initial position:', error);
-            // Fallback to starting position FEN
-            const startingFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-            console.log('Error fallback to starting position FEN');
-            handlePositionChange(startingFen, 0);
-          }
-        } else {
-          console.warn('Missing dependencies for position extraction:', {
-            hasHandler: !!handlePositionChange,
-            hasBase: !!(viewer.base),
-            hasPgn: !!(viewer.base?.mypgn)
-          });
-        }
-
-        // Set up position change listener for navigation
-        if (viewer.base && viewer.base.mypgn && handlePositionChange) {
-          let lastMoveIndex = 0;
-          let lastFen = '';
-
-          // Override the pgn-viewer's move navigation to trigger our callback
-          const originalGotoMove = viewer.base.mypgn.gotoMove;
-          if (originalGotoMove) {
-            viewer.base.mypgn.gotoMove = function (moveIndex: number) {
-              const result = originalGotoMove.call(this, moveIndex);
-              try {
-                const currentMove = this.getMove(moveIndex);
-                if (currentMove && currentMove.fen) {
-                  console.log(`PGNViewer: Moved to position ${moveIndex}, FEN:`, currentMove.fen);
-                  handlePositionChange(currentMove.fen, moveIndex);
-                  lastMoveIndex = moveIndex;
-                  lastFen = currentMove.fen;
+                if (moveAttr) {
+                  const moveIdx = parseInt(moveAttr) || 0;
+                  if (moveIdx !== currentMoveIndex && moveIdx < gameData.length) {
+                    console.log('DOM detected move change to:', moveIdx);
+                    setCurrentMoveIndex(moveIdx);
+                  }
                 }
-              } catch (error) {
-                console.warn('Error getting current position after move:', error);
               }
-              return result;
-            };
-          }
 
-          // Also set up polling as backup to detect position changes
-          const pollInterval = setInterval(() => {
-            try {
-              const currentMoveIndex = viewer.base.mypgn.currentMove || 0;
-              const currentMove = viewer.base.mypgn.getMove(currentMoveIndex);
-              if (currentMove && currentMove.fen &&
-                (currentMoveIndex !== lastMoveIndex || currentMove.fen !== lastFen)) {
-                console.log(`PGNViewer: Position changed via polling to ${currentMoveIndex}, FEN:`, currentMove.fen);
-                handlePositionChange(currentMove.fen, currentMoveIndex);
-                lastMoveIndex = currentMoveIndex;
-                lastFen = currentMove.fen;
-              }
-            } catch {
-              // Ignore polling errors
+              // Alternative: look for highlighted moves in the move list
+              const moveElements = element.querySelectorAll('[data-move], .move');
+              moveElements.forEach((el, idx) => {
+                if (el.classList.contains('current') || el.classList.contains('active')) {
+                  if (idx !== currentMoveIndex && idx < gameData.length) {
+                    console.log('DOM detected active move at index:', idx);
+                    setCurrentMoveIndex(idx);
+                  }
+                }
+              });
             }
-          }, 500); // Poll every 500ms
+          });
+        });
 
-          // Store interval for cleanup
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (viewer as any).pollInterval = pollInterval;
-        }
+        // Start observing
+        observer.observe(element, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['class', 'data-move', 'data-index']
+        });
+
+        // Also set up click event listeners on move elements
+        setTimeout(() => {
+          const moveElements = element.querySelectorAll('.move, [data-move]');
+          moveElements.forEach((el, idx) => {
+            el.addEventListener('click', () => {
+              console.log('Click detected on move:', idx);
+              if (idx < gameData.length) {
+                setTimeout(() => setCurrentMoveIndex(idx), 50);
+              }
+            });
+          });
+        }, 500);
+
+        // Store observer for cleanup
+        (viewer as { observer?: MutationObserver }).observer = observer;
 
       } catch (error) {
         console.error('Error initializing pgn-viewer:', error);
@@ -193,18 +222,15 @@ export function PGNViewerWrapper({
     return () => {
       clearTimeout(timer);
       if (viewerRef.current) {
-        // Clear polling interval if it exists
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pollInterval = (viewerRef.current as any).pollInterval;
-        if (pollInterval) {
-          clearInterval(pollInterval);
+        // Stop observing
+        const observer = (viewerRef.current as { observer?: MutationObserver }).observer;
+        if (observer) {
+          observer.disconnect();
         }
-        // Clear the viewer reference but don't manipulate DOM directly
-        // React will handle DOM cleanup
         viewerRef.current = null;
       }
     };
-  }, [id, gameDescription, timerTime, locale, showResult, boardSize, showFen, pieceStyle, theme, handlePositionChange]);
+  }, [id, gameDescription, timerTime, locale, showResult, boardSize, showFen, pieceStyle, theme, gameData, currentMoveIndex]);
 
   return (
     <div

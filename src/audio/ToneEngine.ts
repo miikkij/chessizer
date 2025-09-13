@@ -54,6 +54,7 @@ export class ToneEngine {
     private reverb: Tone.Reverb | null = null;
     private chorus: Tone.Chorus | null = null;
     private compressor: Tone.Compressor | null = null;
+    private masterGain: Tone.Gain | null = null;
     private isInitialized = false;
     private currentPreset: SoundPreset | null = null;
     private previousFen = '';
@@ -61,6 +62,7 @@ export class ToneEngine {
     private tickInterval: number | null = null;
     private currentFen = '';
     private tickRate = 1000; // milliseconds
+    private masterVolume = 0.7; // Default volume (0.0 to 1.0)
 
     // Default sound presets
     private presets: SoundPreset[] = [
@@ -247,7 +249,10 @@ export class ToneEngine {
             destination = this.chorus;
         }
 
-        this.compressor.toDestination();
+        // Create master gain control and connect to destination
+        this.masterGain = new Tone.Gain(this.masterVolume);
+        this.compressor.connect(this.masterGain);
+        this.masterGain.toDestination();
     }
 
     private createSynthesizer(): void {
@@ -311,6 +316,7 @@ export class ToneEngine {
     }
 
     setPosition(fen: string): void {
+        console.log('ToneEngine: setPosition called with FEN:', fen);
         this.currentFen = fen;
     }
 
@@ -320,6 +326,22 @@ export class ToneEngine {
             this.stop();
             this.play();
         }
+    }
+
+    setMasterVolume(volume: number): void {
+        // Clamp volume between 0.0 and 1.0
+        this.masterVolume = Math.max(0.0, Math.min(1.0, volume));
+
+        // Update the gain node if it exists
+        if (this.masterGain) {
+            this.masterGain.gain.rampTo(this.masterVolume, 0.1); // Smooth transition
+        }
+
+        console.log('ToneEngine: Master volume set to', this.masterVolume);
+    }
+
+    getMasterVolume(): number {
+        return this.masterVolume;
     }
 
     async play(): Promise<void> {
@@ -642,6 +664,11 @@ export class ToneEngine {
         if (this.compressor) {
             this.compressor.dispose();
             this.compressor = null;
+        }
+
+        if (this.masterGain) {
+            this.masterGain.dispose();
+            this.masterGain = null;
         }
 
         this.isInitialized = false;
