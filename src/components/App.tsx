@@ -161,7 +161,7 @@ function App() {
         const newPGN = generatePGN(presetId);
         setPgnData(newPGN);
         // The PGNViewer will call handlePositionChange with the initial position
-    };    const handlePositionChange = (fen: string, moveNumber: number) => {
+    }; const handlePositionChange = (fen: string, moveNumber: number) => {
         console.log('App: Position changed:', fen, 'move:', moveNumber);
         setCurrentFen(fen);
     };
@@ -171,7 +171,7 @@ function App() {
         const initialPGN = generatePGN(gamePreset);
         setPgnData(initialPGN);
         // The PGNViewer will call handlePositionChange with the initial position
-    }, [generatePGN, gamePreset]);    return (
+    }, [generatePGN, gamePreset]); return (
         <div ref={appRef} className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
             <Toaster position="top-right" />
 
