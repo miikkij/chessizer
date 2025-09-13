@@ -7,6 +7,13 @@ import { globalIgnores } from 'eslint/config'
 
 export default tseslint.config([
   globalIgnores(['dist']),
+  // Allow looser types in declaration files for third-party modules
+  {
+    files: ['**/*.d.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

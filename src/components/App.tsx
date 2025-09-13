@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import Ajv from "ajv";
 import { Button } from "./ui/button";
 // import { Slider } from "./ui/slider";
 import PGNViewerWrapper from "./PGNViewerWrapper";
@@ -6,19 +7,38 @@ import PGNLoader from "./PGNLoader";
 // import { ToneEngine } from "../audio/ToneEngine";
 import { SoundAgent } from "../audio/SoundAgent";
 import { animate } from 'animejs';
+import EarconTester from "./EarconTester";
+import TraversalControls from "./TraversalControls";
 import { Toaster, toast } from 'react-hot-toast';
 
 function App() {
     // const [soundEngine] = useState(() => new ToneEngine());
     const [agent, setAgent] = useState<SoundAgent | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
-    const [tickInterval, setTickInterval] = useState(1000);
-    const [masterVolume, setMasterVolume] = useState(0.7); // Default volume
+    // Settings persisted in localStorage
+    const readNumber = (key: string, fallback: number, min?: number, max?: number) => {
+        try {
+            const raw = localStorage.getItem(key);
+            if (raw == null) return fallback;
+            const n = Number(raw);
+            if (Number.isNaN(n)) return fallback;
+            if (typeof min === 'number' && n < min) return min;
+            if (typeof max === 'number' && n > max) return max;
+            return n;
+        } catch {
+            return fallback;
+        }
+    };
+    const [bpm, setBpm] = useState(() => readNumber('settings.bpm', 120, 40, 300));
+    const [swing, setSwing] = useState(() => readNumber('settings.swing', 0, 0, 1)); // 0..1
+    const [tickMs, setTickMs] = useState(1000);
+    const [masterVolume, setMasterVolume] = useState(() => readNumber('settings.volume', 0.7, 0, 1)); // 0..1
     const [gamePreset, setGamePreset] = useState('immortal_game');
     const [pgnData, setPgnData] = useState('');
     const [currentFen, setCurrentFen] = useState('');
-    const [currentPreset, setCurrentPreset] = useState("harmonic_layers");
     const appRef = useRef<HTMLDivElement>(null);
+    // Gate persisting to localStorage so we can clear without immediately re-saving defaults
+    const persistRef = useRef(true);
 
     // Initialize sound agent and load config
     useEffect(() => {
@@ -26,6 +46,40 @@ function App() {
         (async () => {
             try {
                 const cfg = await (await fetch('/configs/sound-agent-demo.json')).json();
+                // Minimal runtime validation to catch common errors early
+                const ajv = new Ajv({ allErrors: true, allowUnionTypes: true })
+                const schema = {
+                    type: "object",
+                    required: ["version", "name", "traversal"],
+                    properties: {
+                        version: { type: "string" },
+                        name: { type: "string" },
+                        transport: { type: "object", additionalProperties: true },
+                        limits: { type: "object", additionalProperties: true },
+                        voices: { type: "object" },
+                        mappings: { type: "object" },
+                        colors: { type: "object" },
+                        traversal: {
+                            type: "object",
+                            required: ["strategy"],
+                            properties: {
+                                strategy: { type: "string" },
+                                tickDurationMs: { type: "number" }
+                            },
+                            additionalProperties: true
+                        },
+                        events: { type: "object" },
+                        scaling: { type: "object" },
+                        diagnostics: { type: "object" }
+                    },
+                    additionalProperties: true
+                } as const
+                const validate = ajv.compile(schema)
+                if (!validate(cfg)) {
+                    console.error("SoundAgent config validation errors", validate.errors)
+                    toast.error('Audio config failed validation — see console for details')
+                    return
+                }
                 if (!mounted) return;
                 const a = new SoundAgent(cfg);
                 setAgent(a);
@@ -49,7 +103,7 @@ function App() {
             }
         }, 100);
         return () => { mounted = false };
-    }, [currentPreset]);
+    }, []);
 
     // Keep SoundAgent in sync with current position
     useEffect(() => {
@@ -62,7 +116,9 @@ function App() {
         if (!agent || !currentFen) return;
         if (!isPlaying) {
             await agent.init();
-            agent.setTickDuration(tickInterval);
+            agent.setTransport({ bpm, swing });
+            // Apply persisted volume after init so masterGain exists
+            agent.setMasterVolume(masterVolume);
             await agent.start();
             setIsPlaying(true);
         } else {
@@ -71,11 +127,23 @@ function App() {
         }
     };
 
-    const handleTickIntervalChange = (value: number[]) => {
-        const newInterval = value[0];
-        setTickInterval(newInterval);
-        agent?.setTickDuration(newInterval);
-    };
+    const handleBpmChange = (value: number[]) => {
+        const v = value[0];
+        setBpm(v);
+        agent?.setTransport({ bpm: v });
+    }
+
+    const handleSwingChange = (value: number[]) => {
+        const v = value[0] / 100; // slider 0..100 -> 0..1
+        setSwing(v);
+        agent?.setTransport({ swing: v });
+    }
+
+    const handleTickChange = (value: number[]) => {
+        const v = value[0];
+        setTickMs(v);
+        agent?.setTickDuration(v);
+    }
 
     const handleVolumeChange = (value: number[]) => {
         const newVolume = value[0];
@@ -83,9 +151,41 @@ function App() {
         agent?.setMasterVolume(newVolume);
     };
 
-    const handlePresetChange = (presetId: string) => {
-        setCurrentPreset(presetId);
+    const handleResetSettings = () => {
+        try {
+            // prevent effects from re-persisting during reset
+            persistRef.current = false;
+            localStorage.removeItem('settings.bpm');
+            localStorage.removeItem('settings.swing');
+            localStorage.removeItem('settings.volume');
+        } catch { /* ignore */ }
+        // Reset in-memory UI state to defaults
+        setBpm(120);
+        setSwing(0);
+        setMasterVolume(0.7);
+        // Apply immediately to agent if present
+        agent?.setTransport({ bpm: 120, swing: 0 });
+        agent?.setMasterVolume(0.7);
+        toast.success('Audio settings cleared and reset to defaults');
+        // re-enable persistence after this render cycle
+        setTimeout(() => { persistRef.current = true }, 0);
     };
+
+    // Persist selected settings
+    useEffect(() => {
+        if (!persistRef.current) return;
+        try { localStorage.setItem('settings.bpm', String(bpm)); } catch { /* ignore */ }
+    }, [bpm]);
+    useEffect(() => {
+        if (!persistRef.current) return;
+        try { localStorage.setItem('settings.swing', String(swing)); } catch { /* ignore */ }
+    }, [swing]);
+    useEffect(() => {
+        if (!persistRef.current) return;
+        try { localStorage.setItem('settings.volume', String(masterVolume)); } catch { /* ignore */ }
+    }, [masterVolume]);
+
+    // Preset system removed in favor of JSON agent config; keep placeholder if needed later
 
     // Game presets with interesting chess games
     const gamePresets = useMemo(() => ({
@@ -285,50 +385,48 @@ function App() {
                                 <div>Engine: <span className={isPlaying ? "text-green-600" : "text-red-600"}>
                                     {isPlaying ? "Playing" : "Stopped"}
                                 </span></div>
-                                <div>Tick Rate: <span className="font-medium">{(1000 / tickInterval).toFixed(1)} Hz</span></div>
+                                <div>Tempo: <span className="font-medium">{bpm} BPM</span></div>
                                 <div>Engine: <span className="font-medium">SoundAgent</span></div>
                             </div>
 
                             {/* Sound Controls */}
                             <div className="space-y-4">
-                                {/* Sound Preset Selector */}
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-sm font-semibold text-gray-700">Preset:</label>
-                                    <select
-                                        value={currentPreset}
-                                        onChange={(e) => {
-                                            handlePresetChange(e.target.value);
-                                            animate('select', {
-                                                scale: [1, 1.05, 1],
-                                                duration: 200
-                                            });
-                                        }}
-                                        className="px-3 py-2 text-sm border-2 border-purple-200 rounded-lg bg-white/80 hover:border-purple-400 transition-all focus:border-purple-500 focus:ring-2 focus:ring-purple-200 w-full"
-                                        title="Select sound preset"
-                                    >
-                                        <option value="harmonic_layers">Harmonic Layers</option>
-                                        <option value="electro_scene">Electro Scene</option>
-                                        <option value="ambient_clouds">Ambient Clouds</option>
-                                    </select>
-                                </div>
-
-                                {/* Tick Interval */}
+                                {/* Transport Controls */}
                                 <div className="flex flex-col gap-2">
                                     <label className="text-sm font-semibold text-gray-700 flex items-center justify-between">
-                                        <span>Tick Interval:</span>
-                                        <span className="text-xs font-medium text-gray-600">{tickInterval}ms</span>
+                                        <span>BPM:</span>
+                                        <span className="text-xs font-medium text-gray-600">{bpm}</span>
+                                    </label>
+                                    <input aria-label="BPM" title="BPM" type="range" min="60" max="200" step="1" value={bpm} onChange={(e) => handleBpmChange([parseInt(e.target.value)])} className="w-full h-2 bg-gradient-to-r from-blue-300 to-purple-300 rounded-lg" />
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-semibold text-gray-700 flex items-center justify-between">
+                                        <span>Swing:</span>
+                                        <span className="text-xs font-medium text-gray-600">{Math.round(swing * 100)}%</span>
+                                    </label>
+                                    <input aria-label="Swing" title="Swing" type="range" min="0" max="100" step="1" value={Math.round(swing * 100)} onChange={(e) => handleSwingChange([parseInt(e.target.value)])} className="w-full h-2 bg-gradient-to-r from-blue-300 to-purple-300 rounded-lg" />
+                                </div>
+
+                                {/* Tick Duration */}
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-semibold text-gray-700 flex items-center justify-between">
+                                        <span>Tick duration:</span>
+                                        <span className="text-xs font-medium text-gray-600">{(tickMs / 1000).toFixed(2)} s</span>
                                     </label>
                                     <input
+                                        aria-label="Tick duration"
+                                        title="Tick duration"
                                         type="range"
                                         min="250"
                                         max="5000"
-                                        step="250"
-                                        value={tickInterval}
-                                        onChange={(e) => handleTickIntervalChange([parseInt(e.target.value)])}
-                                        className="w-full h-2 bg-gradient-to-r from-blue-300 to-purple-300 rounded-lg appearance-none cursor-pointer slider hover:from-blue-400 hover:to-purple-400 transition-all"
-                                        title="Tick Interval"
+                                        step="50"
+                                        value={tickMs}
+                                        onChange={(e) => handleTickChange([parseInt(e.target.value)])}
+                                        className="w-full h-2 bg-gradient-to-r from-indigo-300 to-pink-300 rounded-lg"
                                     />
                                 </div>
+
+                                {/* Volume control remains */}
 
                                 {/* Volume Control */}
                                 <div className="flex flex-col gap-2">
@@ -366,8 +464,20 @@ function App() {
                                 >
                                     {isPlaying ? "⏹️ Stop" : "▶️ Play"}
                                 </Button>
+
+                                {/* Reset settings button */}
+                                <Button
+                                    onClick={handleResetSettings}
+                                    variant="outline"
+                                    className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50"
+                                >
+                                    Reset audio settings
+                                </Button>
                             </div>
                         </div>
+
+                        <TraversalControls agent={agent} />
+                        <EarconTester agent={agent} />
 
                         {/* Enhanced PGN Preview */}
                         <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-xl border border-white/50 p-6 hover:shadow-2xl transition-all duration-300">

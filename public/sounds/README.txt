@@ -1,0 +1,1 @@
+Place short wav files here if you add sample-based icons. Current demo uses synth voices instead of samples.

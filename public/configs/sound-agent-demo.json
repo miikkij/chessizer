@@ -7,7 +7,8 @@
     "synthPawn": { "type": "PolySynth", "voice": "Synth", "chain": [{ "node": "Panner", "options": { "pan": 0 } }], "toDestination": true, "volumeDb": -6 },
     "synthKnight": { "type": "PolySynth", "voice": "Synth", "chain": [{ "node": "Panner", "options": { "pan": 0 } }], "toDestination": true },
     "synthGlide": { "type": "Synth", "options": { "portamento": 0.02 }, "chain": [{ "node": "Panner", "options": { "pan": 0 } }], "toDestination": true },
-    "synthPerc": { "type": "Synth", "options": { "oscillator": { "type": "square" }, "envelope": { "attack": 0.001, "decay": 0.12, "sustain": 0.0, "release": 0.08 } }, "chain": [{ "node": "Panner", "options": { "pan": 0 } }], "toDestination": true }
+    "synthPerc": { "type": "Synth", "options": { "oscillator": { "type": "square" }, "envelope": { "attack": 0.001, "decay": 0.12, "sustain": 0.0, "release": 0.08 } }, "chain": [{ "node": "Panner", "options": { "pan": 0 } }], "toDestination": true },
+    "droneBed": { "type": "Synth", "options": { "oscillator": { "type": "sawtooth" }, "envelope": { "attack": 0.2, "decay": 0.3, "sustain": 0.2, "release": 0.6 } }, "chain": [{ "node": "Filter", "options": { "type": "lowpass", "frequency": 600 } }], "toDestination": true, "volumeDb": -18 }
   },
   "mappings": {
     "pieceEarcons": {
@@ -19,11 +20,28 @@
       "king":   { "voiceId": "synthKnight", "register": { "white": "C4", "black": "C2" }, "pattern": [{ "t": 0, "dyad": ["+0", "+7"], "d": 180, "v": 0.8 }] }
     }
   },
-  "colors": { "white": { "pan": -0.3 }, "black": { "pan": 0.3 } },
-  "traversal": { "strategy": "ringsFromKing", "params": { "side": "turn", "cellsPerTick": 64 }, "tickDurationMs": 1000, "concurrency": { "maxVoices": 8, "onsetOffsetMs": [10, 35] } },
+  "colors": {
+    "white": { "pan": -0.3, "pitchShift": 2, "filterTint": { "frequency": 1400 } },
+    "black": { "pan": 0.3,  "pitchShift": -2, "filterTint": { "frequency": 900 } }
+  },
+  "traversal": {
+    "strategy": "ringsFromKing",
+    "params": { "side": "turn", "cellsPerTick": 64 },
+    "tickDurationMs": 1000,
+    "concurrency": {
+      "maxVoices": 8,
+      "onsetOffsetMs": [10, 35],
+      "intensityScaling": { "minFactor": 0.5, "maxFactor": 1.0, "curve": "linear" }
+    }
+  },
   "events": {
     "check": { "voiceId": "synthGlide", "white": { "glide": { "from": "B5", "to": "D6", "durationMs": 200 }, "pan": -0.3 }, "black": { "glide": { "from": "D4", "to": "B3", "durationMs": 200 }, "pan": 0.3 } },
-    "capture": { "voiceId": "synthPerc", "white": { "note": "C5", "durationMs": 140, "pan": -0.2 }, "black": { "note": "C3", "durationMs": 140, "pan": 0.2 } }
+    "capture": { "voiceId": "synthPerc", "white": { "note": "C5", "durationMs": 140, "pan": -0.2 }, "black": { "note": "C3", "durationMs": 140, "pan": 0.2 } },
+    "checkmate": { "sequence": [
+      { "voiceId": "synthPerc", "note": "C6", "t": 0, "d": 120, "levelDb": 6 },
+      { "voiceId": "droneBed", "note": "C3", "t": 200, "d": 800, "levelDb": -6 }
+    ] }
   },
+  "scaling": { "drone": { "voiceId": "droneBed", "baseNote": "C2", "brightnessByMaterial": { "slopeCentroidHzPerPoint": 80, "minHz": 400, "maxHz": 2000 }, "levelDb": -18 } },
   "diagnostics": { "logLevel": "info", "emitScheduleLog": true }
 }

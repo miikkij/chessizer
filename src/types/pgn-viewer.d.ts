@@ -15,20 +15,20 @@ declare module '@mliebelt/pgn-viewer' {
     width?: string;
     movesWidth?: string;
     movesHeight?: string;
-    [key: string]: any;
+    [key: string]: unknown;
   }
 
   export interface PgnViewerApi {
     base: {
       mypgn: {
-        getMove: (index: number) => any;
-        getTags: () => any;
-        [key: string]: any;
+        getMove: (index: number) => unknown;
+        getTags: () => unknown;
+        [key: string]: unknown;
       };
       currentMove?: number;
-      [key: string]: any;
+      [key: string]: unknown;
     };
-    board: any;
+    board: unknown;
   }
 
   export function pgnView(boardId: string, configuration: PgnViewerConfiguration): PgnViewerApi;
