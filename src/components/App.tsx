@@ -408,6 +408,13 @@ function App() {
                             }
                         }} />
 
+                        {/* PGN Data - Same height as game selection */}
+                        <div className="flex items-center gap-3 bg-white/60 px-4 py-2 rounded-lg shadow-sm border border-white/50">
+                            <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">📝 PGN Data:</label>
+                            <div className="bg-gray-50/80 p-2 rounded text-xs font-mono w-96 h-83 overflow-y-auto border border-gray-200 shadow-inner">
+                                {pgnData || 'No game loaded - Select a game source above'}
+                            </div>
+                        </div>
 
                     </div>
                 </div>
@@ -590,16 +597,6 @@ function App() {
 
                         <TraversalControls agent={agent} />
                         <EarconTester agent={agent} />
-
-                        {/* Enhanced PGN Preview */}
-                        <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-xl border border-white/50 p-6 hover:shadow-2xl transition-all duration-300">
-                            <h3 className="font-bold text-lg bg-gradient-to-r from-gray-700 to-gray-900 bg-clip-text text-transparent mb-4 flex items-center">
-                                📝 PGN Data
-                            </h3>
-                            <div className="bg-gray-50/80 p-4 rounded-lg text-xs font-mono max-h-32 overflow-y-auto border border-gray-200 shadow-inner">
-                                {pgnData || 'No game loaded - Select a game source above'}
-                            </div>
-                        </div>
                     </div>
                 </div>
             </main>
