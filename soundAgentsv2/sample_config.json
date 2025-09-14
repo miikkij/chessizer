@@ -1,0 +1,259 @@
+{
+  "version": "1.0",
+  "name": "chessSoundWaveDemo",
+  "audio": {
+    "sampleRate": 48000,
+    "bitDepth": 16,
+    "channels": 2,
+    "lengthMs": 4000,
+    "headroomDb": 6
+  },
+  "limits": {
+    "maxConcurrentVoices": 4,
+    "onsetOffsetMs": [20, 50]
+  },
+  "groove": {
+    "tempoBpm": 120,
+    "bars": 2,
+    "kit": {
+      "kick": {
+        "type": "sineClick",
+        "toneHz": 60,
+        "decayMs": 180,
+        "pan": 0.0,
+        "gainDb": -6
+      },
+      "snare": {
+        "type": "noiseSnap",
+        "toneHz": 180,
+        "decayMs": 140,
+        "pan": 0.0,
+        "gainDb": -9
+      },
+      "hat": {
+        "type": "noiseTick",
+        "toneHz": 8000,
+        "decayMs": 30,
+        "pan": 0.0,
+        "gainDb": -12
+      }
+    },
+    "tracks": [
+      {
+        "voice": "kick",
+        "steps": 16,
+        "pulses": 4,
+        "rotate": 0
+      },
+      {
+        "voice": "snare",
+        "steps": 16,
+        "pulses": 3,
+        "rotate": 2
+      },
+      {
+        "voice": "hat",
+        "steps": 16,
+        "pulses": 9,
+        "rotate": 0
+      }
+    ]
+  },
+  "pulseGrid": {
+    "earcons": {
+      "pawn": {
+        "osc": "triangle",
+        "env": {
+          "a": 5,
+          "d": 60,
+          "s": 0.2,
+          "r": 80
+        },
+        "pattern": [
+          {
+            "t": 0,
+            "semitone": 0,
+            "durMs": 120
+          },
+          {
+            "t": 140,
+            "semitone": 2,
+            "durMs": 100
+          }
+        ]
+      },
+      "knight": {
+        "osc": "square",
+        "env": {
+          "a": 5,
+          "d": 80,
+          "s": 0.2,
+          "r": 120
+        },
+        "pattern": [
+          {
+            "t": 0,
+            "semitone": 0,
+            "durMs": 90
+          },
+          {
+            "t": 120,
+            "semitone": 3,
+            "durMs": 90
+          },
+          {
+            "t": 240,
+            "semitone": -1,
+            "durMs": 90
+          }
+        ]
+      },
+      "bishop": {
+        "osc": "sine",
+        "env": {
+          "a": 5,
+          "d": 120,
+          "s": 0.2,
+          "r": 120
+        },
+        "pattern": [
+          {
+            "t": 0,
+            "semitone": 0,
+            "durMs": 160
+          },
+          {
+            "t": 180,
+            "semitone": 2,
+            "durMs": 140
+          }
+        ]
+      },
+      "rook": {
+        "osc": "saw",
+        "env": {
+          "a": 5,
+          "d": 100,
+          "s": 0.2,
+          "r": 140
+        },
+        "chord": [0, 7, 12],
+        "durMs": 120
+      },
+      "queen": {
+        "osc": "saw",
+        "env": {
+          "a": 5,
+          "d": 120,
+          "s": 0.2,
+          "r": 180
+        },
+        "arp": [0, 4, 7, 12],
+        "stepMs": 40,
+        "durMs": 220
+      },
+      "king": {
+        "osc": "sine",
+        "env": {
+          "a": 5,
+          "d": 140,
+          "s": 0.2,
+          "r": 200
+        },
+        "dyad": [0, 7],
+        "durMs": 180
+      }
+    },
+    "register": {
+      "white": "C5",
+      "black": "C3"
+    },
+    "pan": {
+      "white": -0.3,
+      "black": 0.3
+    },
+    "gainDb": {
+      "white": -10,
+      "black": -10
+    }
+  },
+  "halo": {
+    "mode": "threat",
+    "kernel": [
+      [0.25, 0.5, 0.25],
+      [0.5, 1.0, 0.5],
+      [0.25, 0.5, 0.25]
+    ],
+    "brightnessHz": {
+      "min": 800,
+      "max": 4000
+    },
+    "width": {
+      "min": 0.0,
+      "max": 0.5
+    }
+  },
+  "events": {
+    "capture": {
+      "type": "click",
+      "durMs": 90,
+      "leadMs": 30,
+      "gainDb": -4,
+      "panBySide": {
+        "white": -0.3,
+        "black": 0.3
+      }
+    },
+    "check": {
+      "type": "glide",
+      "fromHzWhite": 1100,
+      "toHzWhite": 1800,
+      "fromHzBlack": 400,
+      "toHzBlack": 260,
+      "durMs": 200,
+      "gainDb": -6
+    }
+  },
+  "ambient": {
+    "mode": "triad",
+    "root": "C2",
+    "qualityByMaterial": {
+      "white": "major",
+      "black": "minor"
+    },
+    "brightnessHz": {
+      "white": 1200,
+      "black": 800
+    },
+    "gainDb": -20
+  },
+  "traversal": {
+    "strategy": "spiralFromCenter",
+    "params": {
+      "center": ["d4", "e4", "d5", "e5"],
+      "orientation": "cw"
+    },
+    "tickDurationMs": 300
+  },
+  "changeRules": {
+    "onMaterialSwing": {
+      "points": 1,
+      "action": "addHatFill"
+    },
+    "onCheck": {
+      "action": "raiseBrightness",
+      "amount": 0.2
+    },
+    "onCapture": {
+      "action": "kickFill"
+    },
+    "onQuiet": {
+      "action": "reduceHalo",
+      "amount": 0.2
+    }
+  },
+  "diagnostics": {
+    "writeStemWavs": false,
+    "logSchedule": true
+  }
+}

@@ -10,6 +10,7 @@ import { animate } from 'animejs';
 import EarconTester from "./EarconTester";
 import TraversalControls from "./TraversalControls";
 import ConfigEditor from "./ConfigEditor";
+import { WavPlayerControls } from "./WavPlayerControls";
 import { Toaster, toast } from 'react-hot-toast';
 
 function App() {
@@ -450,19 +451,19 @@ function App() {
 
                         {/* Sound Status & Controls */}
                         <div className="rounded-lg border bg-card p-4">
-                            <h3 className="font-semibold mb-4">🎵 Sound Status & Controls</h3>
+                            <h3 className="font-semibold mb-4">🎵 Sound Engines</h3>
 
-                            {/* Status Info */}
+                            {/* Engine Status */}
                             <div className="space-y-2 text-sm mb-4">
-                                <div>Engine: <span className={isPlaying ? "text-green-600" : "text-red-600"}>
+                                <div>Tone.js Engine: <span className={isPlaying ? "text-green-600" : "text-red-600"}>
                                     {isPlaying ? "Playing" : "Stopped"}
                                 </span></div>
-                                <div>Tempo: <span className="font-medium">{bpm} BPM</span></div>
-                                <div>Engine: <span className="font-medium">SoundAgent</span></div>
+                                <div>Current Position: <span className="font-medium text-xs break-all">{currentFen || 'None'}</span></div>
                             </div>
 
-                            {/* Sound Controls */}
-                            <div className="space-y-4">
+                            {/* Tone.js Controls */}
+                            <div className="space-y-4 mb-6">
+                                <h4 className="font-medium text-sm text-gray-700 border-b pb-1">Tone.js Real-time Engine</h4>
                                 {/* Transport Controls */}
                                 <div className="flex flex-col gap-2">
                                     <label className="text-sm font-semibold text-gray-700 flex items-center justify-between">
@@ -575,6 +576,15 @@ function App() {
                                 >
                                     Reset audio settings
                                 </Button>
+                            </div>
+
+                            {/* WAV Generator Engine */}
+                            <div className="space-y-3 pt-4 border-t">
+                                <h4 className="font-medium text-sm text-gray-700 border-b pb-1">Python WAV Generator</h4>
+                                <WavPlayerControls
+                                    currentFen={currentFen}
+                                    isEnabled={!!currentFen}
+                                />
                             </div>
                         </div>
 
