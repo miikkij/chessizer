@@ -2,7 +2,7 @@
   "version": "1.0",
   "name": "demoEarconRow",
   "transport": { "bpm": 120, "quantize": "16n" },
-  "limits": { "maxConcurrentVoices": 4, "onsetOffsetMs": [20, 50], "hardHeadroomDb": 6, "clipLengthMs": 2200 },
+  "limits": { "maxConcurrentVoices": 4, "onsetOffsetMs": [20, 50], "hardHeadroomDb": 6 },
   "voices": {
     "synthPawn": { "type": "PolySynth", "voice": "Synth", "chain": [{ "node": "Panner", "options": { "pan": 0 } }], "toDestination": true, "volumeDb": -6 },
     "synthKnight": { "type": "PolySynth", "voice": "Synth", "chain": [{ "node": "Panner", "options": { "pan": 0 } }], "toDestination": true },

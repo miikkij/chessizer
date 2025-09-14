@@ -5,10 +5,11 @@ import { Button } from "./ui/button";
 import PGNViewerWrapper from "./PGNViewerWrapper";
 import PGNLoader from "./PGNLoader";
 // import { ToneEngine } from "../audio/ToneEngine";
-import { SoundAgent } from "../audio/SoundAgent";
+import { SoundAgent, type SoundAgentConfig } from "../audio/SoundAgent";
 import { animate } from 'animejs';
 import EarconTester from "./EarconTester";
 import TraversalControls from "./TraversalControls";
+import ConfigEditor from "./ConfigEditor";
 import { Toaster, toast } from 'react-hot-toast';
 
 function App() {
@@ -154,6 +155,36 @@ function App() {
         setMasterVolume(newVolume);
         agent?.setMasterVolume(newVolume);
     };
+
+    const handleConfigChange = useCallback((config: unknown, configPath: string) => {
+        if (configPath === '/configs/sound-agent-demo.json' && config) {
+            // Reload the SoundAgent with the new configuration
+            try {
+                const newAgent = new SoundAgent(config as SoundAgentConfig);
+                setAgent(newAgent);
+                toast.success('🎵 SoundAgent config updated');
+
+                // If we were playing, restart with the new config
+                if (isPlaying) {
+                    setIsPlaying(false);
+                    setTimeout(async () => {
+                        await newAgent.init();
+                        newAgent.setTransport({ bpm, swing });
+                        newAgent.setMasterVolume(masterVolume);
+                        newAgent.setTickDuration(tickMs);
+                        if (currentFen) {
+                            newAgent.setPosition(currentFen);
+                            await newAgent.start();
+                            setIsPlaying(true);
+                        }
+                    }, 100);
+                }
+            } catch (error) {
+                console.error('Failed to apply new config:', error);
+                toast.error('Failed to apply new configuration');
+            }
+        }
+    }, [bpm, swing, masterVolume, tickMs, currentFen, isPlaying]);
 
     const handleResetSettings = () => {
         try {
@@ -505,6 +536,9 @@ function App() {
                                 >
                                     {isPlaying ? "⏹️ Stop" : "▶️ Play"}
                                 </Button>
+
+                                {/* Config Editor Button */}
+                                <ConfigEditor onConfigChange={handleConfigChange} />
 
                                 {/* Simple timeline controls to ensure FEN moves */}
                                 <div className="flex items-center gap-2">
