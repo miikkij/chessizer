@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import axios from 'axios';
 
-interface WavSoundPlayerProps {
+interface UseWavPlayerProps {
     currentFen?: string;
     isEnabled?: boolean;
     onError?: (error: string) => void;
@@ -245,12 +245,15 @@ const DEFAULT_WAV_CONFIG: WavConfig = {
     }
 };
 
-export function WavSoundPlayer({
+/** @deprecated Use `useWavPlayer` instead */
+export const WavSoundPlayer = useWavPlayer;
+
+export function useWavPlayer({
     currentFen,
     isEnabled = true,
     onError,
     onSuccess
-}: WavSoundPlayerProps) {
+}: UseWavPlayerProps) {
     const [isGenerating, setIsGenerating] = useState(false);
     const [isPlaying, setIsPlaying] = useState(false);
     const [wavConfig, setWavConfig] = useState<WavConfig>(DEFAULT_WAV_CONFIG);
@@ -341,14 +344,14 @@ export function WavSoundPlayer({
 
             let errorMessage = 'Failed to generate sound';
             if (axios.isAxiosError(error)) {
-                if (error.response?.status === 404 || error.code === 'ECONNREFUSED') {
-                    errorMessage = 'Microservice not available. Make sure Python server is running on port 8001.';
+                if (error.response?.status === 404 || error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
+                    errorMessage = 'WAV server not running. Start it with: cd soundAgentsv2 && start.bat';
                 } else if (error.response?.status === 400) {
                     errorMessage = `Invalid request: ${error.response.data?.detail || 'Bad request'}`;
                 } else if (error.response?.status === 500) {
                     errorMessage = `Server error: ${error.response.data?.detail || 'Internal error'}`;
                 } else if (error.code === 'ENOTFOUND') {
-                    errorMessage = 'Cannot reach microservice. Check connection and URL.';
+                    errorMessage = 'Cannot reach WAV server. Check connection and URL.';
                 }
             }
 
@@ -424,29 +427,41 @@ export function WavSoundPlayer({
         };
     }, [handleAudioEnded]);
 
-    // Auto-regenerate when FEN changes during loop playback
+    // BUG-007 FIX: Auto-regenerate with proper debounce (500ms) and abort previous requests
     useEffect(() => {
-        let timeoutId: NodeJS.Timeout;
+        let timeoutId: ReturnType<typeof setTimeout>;
+        let aborted = false;
 
         // Only auto-regenerate if:
         // 1. We're currently playing in loop mode
         // 2. The current FEN is different from the one we're playing
         // 3. We have a valid FEN
         if (isPlaying && isLooping && currentFen && currentFen !== lastFenPlayed) {
-            // Add a small delay to avoid rapid regeneration during quick position changes
+            // Abort any in-flight requests before scheduling new one
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+
+            // Debounce: 500ms to avoid rapid regeneration during quick position changes
             timeoutId = setTimeout(async () => {
-                console.log(`Auto-regenerating WAV: FEN changed from ${lastFenPlayed} to ${currentFen}`);
+                if (aborted) return;
+                if (import.meta.env.DEV) {
+                    console.log(`Auto-regenerating WAV: FEN changed to ${currentFen}`);
+                }
                 try {
                     if (generateAndPlayRef.current) {
                         await generateAndPlayRef.current();
                     }
                 } catch (error) {
-                    console.error('Auto-regeneration failed:', error);
+                    if (!aborted) {
+                        console.error('Auto-regeneration failed:', error);
+                    }
                 }
-            }, 100);
+            }, 500);
         }
 
         return () => {
+            aborted = true;
             if (timeoutId) {
                 clearTimeout(timeoutId);
             }
@@ -485,4 +500,4 @@ export function WavSoundPlayer({
     };
 }
 
-export default WavSoundPlayer;
+export default useWavPlayer;

@@ -1,5 +1,6 @@
 import * as Tone from "tone"
 import { Chess } from "chess.js"
+import { buildTraversal, makeRowSequential, type Traversal, type RowParams } from "./traversal"
 
 // Minimal types to support the JSON-driven config described in soundAGENTS.md
 export type Step = {
@@ -157,12 +158,16 @@ function scheduleEarconAt(
   pitchOffset: number | undefined,
   filterTintHz: number | undefined,
   voices: Record<string, BuiltVoice>,
+  /** BUG-018 FIX: optional file-based spatial pan override */
+  filePan?: number,
 ) {
   const v = voices[earcon.voiceId]
   if (!v) return
   const base = earcon.register[color]
-  if (Number.isFinite(pan) && v.panner) {
-    v.panner.pan.rampTo(pan as number, 0.01)
+  // Use file-based spatial pan if provided, otherwise fall back to color pan
+  const effectivePan = filePan ?? pan
+  if (Number.isFinite(effectivePan) && v.panner) {
+    v.panner.pan.rampTo(effectivePan as number, 0.01)
   }
   if (Number.isFinite(filterTintHz as number) && v.filter) {
     v.filter.frequency.rampTo(filterTintHz as number, 0.05)
@@ -198,209 +203,25 @@ function scheduleEarconAt(
   }
 }
 
-// Simple rowSequential traversal
-type RowParams = { fileOrder?: "aToH" | "hToA"; rowsOrder?: "8to1" | "1to8"; rowsPerTick?: number }
-function makeRowSequential(params?: RowParams) {
-  const fileOrder = params?.fileOrder ?? "aToH"
-  const rowsOrder = params?.rowsOrder ?? "8to1"
-  const rowsPerTick = Math.max(1, Math.min(8, params?.rowsPerTick ?? 1))
-  const files = fileOrder === "aToH" ? ["a", "b", "c", "d", "e", "f", "g", "h"] : ["h", "g", "f", "e", "d", "c", "b", "a"]
-  const ranks = rowsOrder === "8to1" ? [8, 7, 6, 5, 4, 3, 2, 1] : [1, 2, 3, 4, 5, 6, 7, 8]
-  let i = 0
-  return {
-    nextTick() {
-      if (i >= ranks.length) return { startTime: 0, cells: [], done: true }
-      const batch = ranks.slice(i, i + rowsPerTick)
-      i += rowsPerTick
-      const cells: string[] = []
-      for (const r of batch) {
-        for (const f of files) cells.push(`${f}${r}`)
-      }
-      return { startTime: 0, cells, done: i >= ranks.length }
-    },
-    reset() { i = 0 },
-  }
-}
-
-// Rings-from-king traversal: expand in Manhattan rings from the king of the side to move
-type RingsParams = { side?: "turn" | "white" | "black"; cellsPerTick?: number }
-function makeRingsFromKing(chess: Chess, params?: RingsParams) {
-  const side = params?.side ?? "turn"
-  const turn: "white" | "black" = chess.turn() === "w" ? "white" : "black"
-  const useSide: "white" | "black" = side === "turn" ? turn : (side as "white" | "black")
-  // find king square for chosen side
-  const pieces = chess.board()
-  let kingSquare: { f: number; r: number } | null = null
-  pieces.forEach((row, rIdx) => {
-    row.forEach((sq, fIdx) => {
-      if (sq && sq.type === "k" && (sq.color === (useSide === "white" ? "w" : "b"))) {
-        kingSquare = { f: fIdx, r: 7 - rIdx } // 0-indexed from a1 -> f:0..7, r:0..7
-      }
-    })
-  })
-  // if not found, fall back to center
-  const center = { f: 3, r: 3 }
-  const origin = kingSquare ?? center
-  // precompute all cells with their manhattan distance from origin
-  const cells: { f: number; r: number; d: number }[] = []
-  for (let r = 0; r < 8; r++) {
-    for (let f = 0; f < 8; f++) {
-      const d = Math.abs(f - origin.f) + Math.abs(r - origin.r)
-      cells.push({ f, r, d })
-    }
-  }
-  cells.sort((a, b) => a.d - b.d || a.r - b.r || a.f - b.f)
-  const cellIds = cells.map((c) => `${String.fromCharCode(97 + c.f)}${c.r + 1}`)
-  const step = Math.max(1, Math.min(64, params?.cellsPerTick ?? 16))
-  let i = 0
-  return {
-    nextTick() {
-      if (i >= cellIds.length) return { startTime: 0, cells: [], done: true }
-      const batch = cellIds.slice(i, i + step)
-      i += step
-      return { startTime: 0, cells: batch, done: i >= cellIds.length }
-    },
-    reset() { i = 0 },
-  }
-}
-
-// Column-sequential traversal
-type ColParams = { fileOrder?: "aToH" | "hToA"; rowsOrder?: "8to1" | "1to8"; colsPerTick?: number }
-function makeColumnSequential(params?: ColParams) {
-  const fileOrder = params?.fileOrder ?? "aToH"
-  const rowsOrder = params?.rowsOrder ?? "8to1"
-  const colsPerTick = Math.max(1, Math.min(8, params?.colsPerTick ?? 1))
-  const files = fileOrder === "aToH" ? ["a", "b", "c", "d", "e", "f", "g", "h"] : ["h", "g", "f", "e", "d", "c", "b", "a"]
-  const ranks = rowsOrder === "8to1" ? [8, 7, 6, 5, 4, 3, 2, 1] : [1, 2, 3, 4, 5, 6, 7, 8]
-  let i = 0
-  return {
-    nextTick() {
-      if (i >= files.length) return { startTime: 0, cells: [], done: true }
-      const batchFiles = files.slice(i, i + colsPerTick)
-      i += colsPerTick
-      const cells: string[] = []
-      for (const f of batchFiles) {
-        for (const r of ranks) cells.push(`${f}${r}`)
-      }
-      return { startTime: 0, cells, done: i >= files.length }
-    },
-    reset() { i = 0 },
-  }
-}
-
-// Spiral-from-center traversal using Chebyshev rings and angle ordering
-type SpiralParams = { center?: string[]; spiral?: "cw" | "ccw"; cellsPerTick?: number }
-function sqToCoord(sq: string): { f: number; r: number } | null {
-  if (!/^[a-h][1-8]$/.test(sq)) return null
-  const f = sq.charCodeAt(0) - 97
-  const r = parseInt(sq[1]) - 1
-  return { f, r }
-}
-function makeSpiralFromCenter(params?: SpiralParams) {
-  const seeds = (params?.center && Array.isArray(params.center) && params.center.length > 0) ? params.center : ["d4", "e4", "d5", "e5"]
-  const coords = seeds.map(sqToCoord).filter((x): x is { f: number; r: number } => !!x)
-  const cx = coords.length ? coords.reduce((a, c) => a + c.f, 0) / coords.length : 3.5
-  const cy = coords.length ? coords.reduce((a, c) => a + c.r, 0) / coords.length : 3.5
-  const dir = params?.spiral === "ccw" ? "ccw" : "cw"
-  const step = Math.max(1, Math.min(64, params?.cellsPerTick ?? 16))
-
-  type Cell = { f: number; r: number; layer: number; angle: number }
-  const cells: Cell[] = []
-  for (let r = 0; r < 8; r++) {
-    for (let f = 0; f < 8; f++) {
-      const dx = f - cx
-      const dy = r - cy
-      const layer = Math.max(Math.abs(dx), Math.abs(dy))
-      const angle = Math.atan2(dy, dx) // CCW from +x
-      cells.push({ f, r, layer, angle })
-    }
-  }
-  cells.sort((a, b) => a.layer - b.layer || (dir === "ccw" ? a.angle - b.angle : b.angle - a.angle) || a.r - b.r || a.f - b.f)
-  const ids = cells.map((c) => `${String.fromCharCode(97 + c.f)}${c.r + 1}`)
-  let i = 0
-  return {
-    nextTick() {
-      if (i >= ids.length) return { startTime: 0, cells: [], done: true }
-      const batch = ids.slice(i, i + step)
-      i += step
-      return { startTime: 0, cells: batch, done: i >= ids.length }
-    },
-    reset() { i = 0 },
-  }
-}
-
-// Random seeded traversal
-type RandomParams = { seed?: number | string; cellsPerTick?: number }
-function mulberry32(a: number) {
-  return function () {
-    let t = (a += 0x6D2B79F5)
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-function hashString(s: string): number {
-  let h = 2166136261 >>> 0
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
-function makeRandomSeeded(params?: RandomParams) {
-  const step = Math.max(1, Math.min(64, params?.cellsPerTick ?? 16))
-  const seed = typeof params?.seed === "number" ? params.seed : hashString(String(params?.seed ?? "seed"))
-  const rnd = mulberry32(seed >>> 0)
-  const ids: string[] = []
-  for (let r = 1; r <= 8; r++) {
-    for (let f = 0; f < 8; f++) ids.push(`${String.fromCharCode(97 + f)}${r}`)
-  }
-  // shuffle
-  for (let i = ids.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1))
-      ;[ids[i], ids[j]] = [ids[j], ids[i]]
-  }
-  let i = 0
-  return {
-    nextTick() {
-      if (i >= ids.length) return { startTime: 0, cells: [], done: true }
-      const batch = ids.slice(i, i + step)
-      i += step
-      return { startTime: 0, cells: batch, done: i >= ids.length }
-    },
-    reset() { i = 0 },
-  }
-}
-
-// Custom list traversal
-type CustomListParams = { order: string[]; cellsPerTick?: number }
-function makeCustomList(params?: CustomListParams) {
-  const order = (params?.order || []).filter((sq) => /^[a-h][1-8]$/.test(sq))
-  const stepSource = params?.cellsPerTick ?? (order.length || 64)
-  const step = Math.max(1, Math.min(64, stepSource))
-  let i = 0
-  return {
-    nextTick() {
-      if (i >= order.length) return { startTime: 0, cells: [], done: true }
-      const batch = order.slice(i, i + step)
-      i += step
-      return { startTime: 0, cells: batch, done: i >= order.length }
-    },
-    reset() { i = 0 },
-  }
-}
-
 function pieceNameFromType(t: string): string {
   const map: Record<string, string> = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" }
   return map[t] || "pawn"
 }
 
+/** Compute file-based spatial pan: a-file = -0.9 (left), h-file = +0.9 (right) */
+function fileToPan(square: string): number {
+  const fileIdx = square.charCodeAt(0) - 97 // 0-7
+  // Map 0..7 to -0.9..+0.9
+  return -0.9 + (fileIdx / 7) * 1.8
+}
+
 export class SoundAgent {
   private voices: Record<string, BuiltVoice> = {}
   private cfg: SoundAgentConfig
-  private traversal: { nextTick: () => { startTime: number; cells: string[]; done?: boolean }; reset: () => void } | null = null
+  private traversal: Traversal | null = null
   private masterGain: Tone.Gain | null = null
   private limiter: Tone.Limiter | null = null
+  private compressor: Tone.Compressor | null = null
   private initialized = false
   private repeatId: number | null = null
   private stopId: number | null = null
@@ -413,6 +234,12 @@ export class SoundAgent {
   private handledPositionVersion = -1
   private static readonly TraversalParamsEmpty: Record<string, unknown> = {}
 
+  // BUG-002 FIX: Cache Chess instance and pre-computed data to avoid per-tick allocation
+  private cachedChess: Chess | null = null
+  private cachedIntensity = 0
+  private cachedBoardPieces: { square: string; type: string; color: "white" | "black" }[] = []
+  private cachedPrevPieceCount = 0
+
   constructor(cfg: SoundAgentConfig) {
     this.cfg = cfg
   }
@@ -420,12 +247,16 @@ export class SoundAgent {
   async init(): Promise<void> {
     if (this.initialized) return
     await Tone.start() // user gesture required; call from Play handler
-    // Build master bus with limiter according to hard headroom
-    this.masterGain = new Tone.Gain(0.9)
+
+    // Build master bus: Gain -> Compressor -> Limiter -> Output
+    this.masterGain = new Tone.Gain(0) // Start at 0 for fade-in
     const headroomDb = this.cfg.limits?.hardHeadroomDb ?? 6
+    this.compressor = new Tone.Compressor({ threshold: -18, ratio: 3, knee: 6 })
     this.limiter = new Tone.Limiter({ threshold: -Math.abs(headroomDb) })
-    this.masterGain.connect(this.limiter)
+    this.masterGain.connect(this.compressor)
+    this.compressor.connect(this.limiter)
     this.limiter.connect(Tone.getDestination())
+
     this.applyTransport()
     this.buildVoices()
     // initialize traversal with a default (will rebuild on first setPosition or tick)
@@ -454,11 +285,8 @@ export class SoundAgent {
     if (typeof c.swing === "number") t.swing = c.swing
     if (Array.isArray(c.timeSignature)) {
       const sig = c.timeSignature as [number, number]
-      // Tone.Transport.timeSignature is number | [number, number] on recent versions
-      // Cast to the right union without using any
       (t as unknown as { timeSignature: number | [number, number] }).timeSignature = sig
     }
-    // latencyHint, quantize and startOffset are advisory; quantize affects how you schedule internally
   }
 
   setTransport(opts: Partial<NonNullable<SoundAgentConfig["transport"]>>): void {
@@ -508,45 +336,72 @@ export class SoundAgent {
       this.stopId = null
     }
     this.running = false
-    // stop drone if active
-    if (this.droneActive && this.cfg.scaling?.drone) {
-      const v = this.voices[this.cfg.scaling.drone.voiceId]
-      if (v && typeof v.node.triggerRelease === "function") {
-        try { v.node.triggerRelease(this.droneNote ?? undefined, Tone.now() + 0.02) } catch { /* noop */ }
-      }
-      this.droneActive = false
+
+    // AUDIO FADE FIX: Fade out over 100ms before releasing voices
+    if (this.masterGain) {
+      this.masterGain.gain.rampTo(0, 0.1)
     }
-    // release any envelopes where possible
-    Object.values(this.voices).forEach((v) => {
-      if (typeof v.node.releaseAll === "function") v.node.releaseAll()
-    })
+
+    // BUG-005 FIX: Release drone on stop
+    this.releaseDrone()
+
+    // Release any envelopes where possible (after a short delay for fade-out)
+    setTimeout(() => {
+      Object.values(this.voices).forEach((v) => {
+        if (typeof v.node.releaseAll === "function") v.node.releaseAll()
+      })
+    }, 120)
   }
 
   dispose(): void {
     this.stop()
-    Object.values(this.voices).forEach((v) => v.node.dispose?.())
-    this.voices = {}
-    this.masterGain?.dispose()
-    this.masterGain = null
-    this.limiter?.dispose()
-    this.limiter = null
-    this.initialized = false
+    // Allow fade-out to complete before disposing nodes
+    setTimeout(() => {
+      Object.values(this.voices).forEach((v) => v.node.dispose?.())
+      this.voices = {}
+      this.compressor?.dispose()
+      this.compressor = null
+      this.masterGain?.dispose()
+      this.masterGain = null
+      this.limiter?.dispose()
+      this.limiter = null
+      this.initialized = false
+      this.cachedChess = null
+    }, 150)
   }
-
-  // renderPosition is intentionally removed in continuous mode
 
   setPosition(fen: string): void {
     if (fen && fen !== this.currentFen) {
       this.previousFen = this.currentFen
       this.currentFen = fen
       this.positionVersion += 1
-      // Rebuild traversal if strategy depends on position
-      const chess = new Chess(this.currentFen)
-      this.traversal = this.buildTraversal(chess)
+
+      // BUG-002 FIX: Create Chess instance once on position change and cache everything
+      this.cachedChess = new Chess(this.currentFen)
+      this.cachedIntensity = this.computeIntensity(this.cachedChess)
+      this.cachedBoardPieces = this.buildBoardSnapshot(this.cachedChess)
+
+      // Cache previous piece count for capture detection
+      if (this.previousFen) {
+        try {
+          const prev = new Chess(this.previousFen)
+          this.cachedPrevPieceCount = prev.board().flat().filter(Boolean).length
+        } catch { this.cachedPrevPieceCount = 0 }
+      }
+
+      // Rebuild traversal
+      this.traversal = this.buildTraversalForPosition(this.cachedChess)
+
+      // BUG-005 FIX: Crossfade drone on position change
+      if (this.running && this.droneActive) {
+        this.releaseDrone()
+        // Drone will restart on next tick via updateDrone()
+      }
+
       // If running, process a tick immediately so the new position is heard without waiting
       if (this.running) {
         const now = Tone.now()
-        this.processTick(chess, now + 0.02)
+        this.processTick(now + 0.02)
       }
     }
   }
@@ -556,6 +411,14 @@ export class SoundAgent {
     if (this.running) return
     this.running = true
     this.traversal?.reset()
+
+    // AUDIO FADE FIX: Fade in over 50ms to eliminate click/pop on start
+    if (this.masterGain) {
+      this.masterGain.gain.cancelScheduledValues(Tone.now())
+      this.masterGain.gain.setValueAtTime(0, Tone.now())
+      this.masterGain.gain.rampTo(0.9, 0.05)
+    }
+
     this.scheduleRepeat()
     this.scheduleClipStopIfNeeded()
   }
@@ -570,10 +433,10 @@ export class SoundAgent {
       this.repeatId = null
     }
 
+    // BUG-002 FIX: Use cached Chess instance instead of creating new one per tick
     this.repeatId = transport.scheduleRepeat((time) => {
-      if (!this.currentFen) return
-      const chess = new Chess(this.currentFen)
-      this.processTick(chess, time)
+      if (!this.currentFen || !this.cachedChess) return
+      this.processTick(time)
     }, interval)
 
     // Start transport if it isn't running yet
@@ -599,7 +462,26 @@ export class SoundAgent {
     this.scheduleRepeat()
   }
 
-  private processTick(chess: Chess, time: number): void {
+  /** Build board snapshot from chess instance - used for caching */
+  private buildBoardSnapshot(chess: Chess): { square: string; type: string; color: "white" | "black" }[] {
+    const boardPieces: { square: string; type: string; color: "white" | "black" }[] = []
+    const board = chess.board()
+    board.forEach((row, rankIndex) => {
+      row.forEach((sq, fileIndex) => {
+        if (!sq) return
+        const file = String.fromCharCode(97 + fileIndex)
+        const rank = 8 - rankIndex
+        boardPieces.push({ square: `${file}${rank}`, type: pieceNameFromType(sq.type), color: sq.color === "w" ? "white" : "black" })
+      })
+    })
+    return boardPieces
+  }
+
+  // BUG-002 FIX: processTick now uses cached data instead of creating Chess instances
+  private processTick(time: number): void {
+    const chess = this.cachedChess
+    if (!chess) return
+
     const [minMs, maxMs] = this.cfg.traversal.concurrency?.onsetOffsetMs || this.cfg.limits?.onsetOffsetMs || [20, 50]
     const baseMaxVoices = this.cfg.traversal.concurrency?.maxVoices ?? this.cfg.limits?.maxConcurrentVoices ?? 4
 
@@ -632,51 +514,38 @@ export class SoundAgent {
           v.node.triggerAttackRelease(ev.note, dur, at, vel)
         }
       }
-      // Capture cue (detect material drop from previousFen to currentFen)
-      if (this.previousFen) {
-        try {
-          const prev = new Chess(this.previousFen)
-          const prevCount = prev.board().flat().filter(Boolean).length
-          const currCount = chess.board().flat().filter(Boolean).length
-          if (currCount < prevCount && this.cfg.events?.capture && this.voices[this.cfg.events.capture.voiceId]) {
-            const attacker: "white" | "black" = chess.turn() === "w" ? "black" : "white"
-            const v = this.voices[this.cfg.events.capture.voiceId]
-            const spec = this.cfg.events.capture[attacker] || {}
-            const note = spec.note || (attacker === "white" ? "C2" : "G1")
-            const dur = (spec.durationMs ?? 160) / 1000
-            const pan = spec.pan
-            if (v.panner && typeof pan === "number") v.panner.pan.rampTo(pan, 0.01)
-            if (typeof v.node.triggerAttackRelease === "function") {
-              v.node.triggerAttackRelease(note, dur, time + 0.02, 0.9)
-            }
+      // Capture cue (detect material drop using cached data)
+      if (this.cachedPrevPieceCount > 0) {
+        const currCount = this.cachedBoardPieces.length
+        if (currCount < this.cachedPrevPieceCount && this.cfg.events?.capture && this.voices[this.cfg.events.capture.voiceId]) {
+          const attacker: "white" | "black" = chess.turn() === "w" ? "black" : "white"
+          const v = this.voices[this.cfg.events.capture.voiceId]
+          const spec = this.cfg.events.capture[attacker] || {}
+          const note = spec.note || (attacker === "white" ? "C2" : "G1")
+          const dur = (spec.durationMs ?? 160) / 1000
+          const pan = spec.pan
+          if (v.panner && typeof pan === "number") v.panner.pan.rampTo(pan, 0.01)
+          if (typeof v.node.triggerAttackRelease === "function") {
+            v.node.triggerAttackRelease(note, dur, time + 0.02, 0.9)
           }
-        } catch { /* ignore diff errors */ }
+        }
       }
     }
 
-    // Build board snapshot
-    const boardPieces: { square: string; type: string; color: "white" | "black" }[] = []
-    const board = chess.board()
-    board.forEach((row, rankIndex) => {
-      row.forEach((sq, fileIndex) => {
-        if (!sq) return
-        const file = String.fromCharCode(97 + fileIndex)
-        const rank = 8 - rankIndex
-        boardPieces.push({ square: `${file}${rank}`, type: pieceNameFromType(sq.type), color: sq.color === "w" ? "white" : "black" })
-      })
-    })
+    // Use cached board snapshot (BUG-002 FIX)
+    const boardPieces = this.cachedBoardPieces
 
     // Next traversal tick (rollover when done)
     let tick = this.traversal?.nextTick()
     if (!tick || tick.cells.length === 0) {
       // rebuild traversal in case strategy depends on current position
-      this.traversal = this.buildTraversal(chess)
+      this.traversal = this.buildTraversalForPosition(chess)
       tick = this.traversal?.nextTick()
     }
     if (!tick) return
 
-    // Select events
-    type Ev = { earcon: Earcon; color: "white" | "black"; pan?: number; pieceType: string; pitchOffset?: number; filterTintHz?: number }
+    // Select events with spatial panning
+    type Ev = { earcon: Earcon; color: "white" | "black"; pan?: number; pieceType: string; pitchOffset?: number; filterTintHz?: number; filePan: number }
     const events: Ev[] = []
     for (const cell of tick.cells) {
       const p = boardPieces.find((bp) => bp.square === cell)
@@ -684,7 +553,9 @@ export class SoundAgent {
       const ear = this.cfg.mappings?.pieceEarcons?.[p.type]
       if (!ear) continue
       const colorCfg = this.cfg.colors?.[p.color]
-      events.push({ earcon: ear, color: p.color, pan: colorCfg?.pan, pieceType: p.type, pitchOffset: colorCfg?.pitchShift, filterTintHz: colorCfg?.filterTint?.frequency })
+      // SPATIAL PANNING: compute file-based pan for immersive stereo field
+      const spatialPan = fileToPan(p.square)
+      events.push({ earcon: ear, color: p.color, pan: colorCfg?.pan, pieceType: p.type, pitchOffset: colorCfg?.pitchShift, filterTintHz: colorCfg?.filterTint?.frequency, filePan: spatialPan })
     }
 
     // Apply voice priority if provided (piece-type based)
@@ -693,9 +564,8 @@ export class SoundAgent {
     priority.forEach((name, idx) => { rank[name] = idx })
     events.sort((a, b) => (rank[a.pieceType] ?? 999) - (rank[b.pieceType] ?? 999))
 
-    // Compute intensity and scale dynamic voice count
-    const intensity = this.computeIntensity(chess)
-    const factor = this.mapIntensityFactor(intensity)
+    // Use pre-computed intensity (BUG-002 FIX)
+    const factor = this.mapIntensityFactor(this.cachedIntensity)
     const dynMax = Math.max(1, Math.min(64, Math.ceil(baseMaxVoices * factor)))
     const chosen = events.slice(0, dynMax)
 
@@ -708,14 +578,15 @@ export class SoundAgent {
       const aliasId = ev.pitchOffset ? `${ev.earcon.voiceId}__${ev.color}` : undefined
       const useEar = aliasId && this.voices[aliasId] ? { ...ev.earcon, voiceId: aliasId } : ev.earcon
       const transpose = aliasId && this.voices[aliasId] ? undefined : ev.pitchOffset
-      scheduleEarconAt(baseAt, useEar, ev.color, ev.pan, transpose, ev.filterTintHz, this.voices)
+      // SPATIAL PANNING: pass file-based pan
+      scheduleEarconAt(baseAt, useEar, ev.color, ev.pan, transpose, ev.filterTintHz, this.voices, ev.filePan)
       logThisTick.push({ piece: ev.pieceType, color: ev.color, at: baseAt })
     })
 
-    if (this.cfg.diagnostics?.emitScheduleLog) {
-      // Lightweight diag log for the tick
+    if (this.cfg.diagnostics?.emitScheduleLog && import.meta.env.DEV) {
       console.log("[SoundAgent] tick", {
         cells: tick.cells,
+        intensity: this.cachedIntensity.toFixed(2),
         selected: logThisTick.map((e) => ({ piece: e.piece, color: e.color, atMs: Math.round((e.at - time) * 1000) })),
       })
     }
@@ -742,6 +613,7 @@ export class SoundAgent {
   }
 
   // --- Intensity metric (0..1) combining captures, center control, in-check ---
+  // BUG-002 FIX: Now called once per position change instead of every tick
   private computeIntensity(chess: Chess): number {
     type VerboseMove = { to?: string; flags?: string; captured?: string }
     // totalCaptures: legal capture moves for side to move
@@ -749,49 +621,41 @@ export class SoundAgent {
     const captureCount = moves.filter((m) => (m.flags && (m.flags.includes('c') || m.flags.includes('e'))) || m.captured).length
 
     // center control approximation: unique control of e4,d4,e5,d5 by either side
-    const fen = chess.fen()
+    // BUG-002 FIX: Simplified to avoid creating 2 extra Chess instances
+    const centers = new Set(['e4', 'd4', 'e5', 'd5'])
     let ctrl = 0
-    try {
-      const cw = new Chess(fen.replace(/ (w|b) /, ' w '))
-      const cb = new Chess(fen.replace(/ (w|b) /, ' b '))
-      const centers = new Set(['e4', 'd4', 'e5', 'd5'])
-      const set = new Set<string>()
-        ; (cw.moves({ verbose: true }) as VerboseMove[]).forEach(m => { if (m.to && centers.has(m.to)) set.add(m.to) })
-        ; (cb.moves({ verbose: true }) as VerboseMove[]).forEach(m => { if (m.to && centers.has(m.to)) set.add(m.to) })
-      ctrl = set.size
-    } catch { /* ignore */ }
+    // Count how many center squares have pieces or are targeted by current side's moves
+    for (const m of moves) {
+      if (m.to && centers.has(m.to)) {
+        centers.delete(m.to) // count unique
+        ctrl++
+      }
+    }
+    // Also count center squares that have pieces on them
+    const board = chess.board()
+    for (const sq of ['e4', 'd4', 'e5', 'd5']) {
+      const f = sq.charCodeAt(0) - 97
+      const r = parseInt(sq[1]) - 1
+      const piece = board[7 - r]?.[f]
+      if (piece) ctrl = Math.min(4, ctrl + 0.5)
+    }
 
     const inCheck = chess.isCheck() ? 1 : 0
-    const score = 0.4 * Math.min(1, captureCount / 20) + 0.4 * (ctrl / 4) + 0.2 * inCheck
+    const score = 0.4 * Math.min(1, captureCount / 20) + 0.4 * (Math.min(ctrl, 4) / 4) + 0.2 * inCheck
     return Math.max(0, Math.min(1, score))
   }
 
-  private buildTraversal(chess?: Chess) {
+  private buildTraversalForPosition(chess?: Chess): Traversal {
     const strat = this.cfg.traversal?.strategy || "rowSequential"
-    const params = this.cfg.traversal?.params || {}
-    switch (strat) {
-      case "rowSequential":
-        return makeRowSequential(params as RowParams)
-      case "columnSequential":
-        return makeColumnSequential(params as ColParams)
-      case "spiralFromCenter":
-        return makeSpiralFromCenter(params as SpiralParams)
-      case "randomSeeded":
-        return makeRandomSeeded(params as RandomParams)
-      case "customList":
-        return makeCustomList(params as CustomListParams)
-      case "ringsFromKing":
-        return chess ? makeRingsFromKing(chess, params as RingsParams) : makeRowSequential(params as RowParams)
-      default:
-        return makeRowSequential(params as RowParams)
-    }
+    const params = (this.cfg.traversal?.params || {}) as Record<string, unknown>
+    return buildTraversal(strat, params, chess)
   }
 
 
   setTraversal(strategy: SoundAgentConfig["traversal"]["strategy"], params?: Record<string, unknown>): void {
     this.cfg.traversal = { ...(this.cfg.traversal || {}), strategy, params: params || SoundAgent.TraversalParamsEmpty }
-    const chess = this.currentFen ? new Chess(this.currentFen) : undefined
-    this.traversal = this.buildTraversal(chess)
+    const chess = this.cachedChess ?? (this.currentFen ? new Chess(this.currentFen) : undefined)
+    this.traversal = this.buildTraversalForPosition(chess)
   }
   // --- Introspection & audition helpers ---
   listPieceTypes(): string[] {
@@ -829,6 +693,19 @@ export class SoundAgent {
     return { ...t, params: { ...(t.params || {}) } }
   }
 
+  // BUG-005 FIX: Helper to release drone cleanly
+  private releaseDrone(): void {
+    if (!this.droneActive) return
+    const d = this.cfg.scaling?.drone
+    if (!d) return
+    const voice = this.voices[d.voiceId]
+    if (voice && typeof voice.node.triggerRelease === "function") {
+      try { voice.node.triggerRelease(this.droneNote ?? undefined, Tone.now() + 0.02) } catch { /* noop */ }
+    }
+    this.droneActive = false
+    this.droneNote = null
+  }
+
   // --- Drone scaling layer ---
   private updateDrone(chess: Chess): void {
     const d = this.cfg.scaling?.drone
@@ -836,7 +713,7 @@ export class SoundAgent {
     const voice = this.voices[d.voiceId]
     if (!voice) return
 
-    // start drone once
+    // start drone if not active
     if (!this.droneActive) {
       const vel = typeof d.levelDb === "number" ? Math.max(0, Math.min(1, Math.pow(10, d.levelDb / 20))) : 0.2
       if (typeof voice.node.triggerAttack === "function") {

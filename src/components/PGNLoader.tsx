@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button } from './ui/button';
 import { Chess } from 'chess.js';
+import { toast } from 'react-hot-toast';
 
 interface PGNLoaderProps {
     onGameLoaded: (fens: string[]) => void;
@@ -54,7 +55,7 @@ export function PGNLoader({ onGameLoaded }: PGNLoaderProps) {
             onGameLoaded(fens);
         } catch (error) {
             console.error('Error parsing PGN:', error);
-            alert('Error parsing PGN. Please check the format.');
+            toast.error('Error parsing PGN. Please check the format.');
         } finally {
             setIsLoading(false);
         }

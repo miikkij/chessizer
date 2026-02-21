@@ -3,11 +3,16 @@ import { pgnView, type PgnViewerApi } from '@mliebelt/pgn-viewer';
 import { Chess } from 'chess.js';
 import { v4 as uuidv4 } from 'uuid';
 
+// BUG-012 FIX: Gate all debug logging behind dev mode
+const DEV = import.meta.env.DEV;
+
 interface PGNViewerWrapperProps {
   pgn: string;
   onPositionChange?: (fen: string, moveIndex: number) => void;
   // Optional: allow parent to control current move index
   externalIndex?: number;
+  // BUG-004 FIX: Acknowledgement callback - parent clears externalIndex when we confirm processing
+  onExternalIndexProcessed?: () => void;
   // Report the total number of positions (including start)
   onGameLengthChange?: (length: number) => void;
   boardSize?: string;
@@ -23,6 +28,7 @@ export function PGNViewerWrapper({
   pgn,
   onPositionChange,
   externalIndex,
+  onExternalIndexProcessed,
   onGameLengthChange,
   boardSize = '400',
   pieceStyle = 'merida',
@@ -52,7 +58,7 @@ export function PGNViewerWrapper({
     const chess = new Chess();
     const moves: { fen: string; san: string }[] = [];
 
-    console.log('PGNViewer: Parsing PGN:', gameDescription);
+    if (DEV) console.log('PGNViewer: Parsing PGN:', gameDescription);
 
     // Add starting position
     moves.push({ fen: chess.fen(), san: '' });
@@ -69,22 +75,23 @@ export function PGNViewerWrapper({
 
       // Extract move text and split into individual moves
       const moveText = gameContent.trim();
-      console.log('PGNViewer: Extracted move text:', moveText);
+      if (DEV) console.log('PGNViewer: Extracted move text:', moveText);
 
       if (moveText && moveText !== '*') {
         // Remove move numbers and split by spaces
-        const tokens = moveText.replace(/\d+\./g, '').split(/\s+/).filter(token =>
+        // BUG-014 FIX: Only remove move numbers (e.g. "1." "12." "1...") not digits inside move notation like R1e1
+        const tokens = moveText.replace(/\d+\.{1,3}/g, '').split(/\s+/).filter(token =>
           token && token !== '*' && !token.match(/^(1-0|0-1|1\/2-1\/2)$/)
         );
 
-        console.log('PGNViewer: Parsed tokens:', tokens);
+        if (DEV) console.log('PGNViewer: Parsed tokens:', tokens);
 
         for (const token of tokens) {
           try {
             const move = chess.move(token);
             if (move) {
               moves.push({ fen: chess.fen(), san: move.san });
-              console.log(`PGNViewer: Applied move ${token} -> ${move.san}, FEN: ${chess.fen()}`);
+              if (DEV) console.log(`PGNViewer: Applied move ${token} -> ${move.san}, FEN: ${chess.fen()}`);
             }
           } catch (err) {
             console.warn('Invalid move:', token, err);
@@ -96,7 +103,7 @@ export function PGNViewerWrapper({
       console.warn('Error parsing PGN:', error);
     }
 
-    console.log('PGNViewer: Parsed', moves.length, 'positions');
+    if (DEV) console.log('PGNViewer: Parsed', moves.length, 'positions');
     return moves;
   }, [gameDescription]);
 
@@ -127,13 +134,13 @@ export function PGNViewerWrapper({
       const position = gameData[currentMoveIndex];
       // Only notify if index actually changed to avoid feedback loops
       if (currentMoveIndex !== lastSentRef.current) {
-        console.log('PGNViewer: Position changed to', currentMoveIndex, position.fen);
-        console.log('PGNViewer: Game has', gameData.length, 'positions total');
+        if (DEV) console.log('PGNViewer: Position changed to', currentMoveIndex, position.fen);
+        if (DEV) console.log('PGNViewer: Game has', gameData.length, 'positions total');
         lastSentRef.current = currentMoveIndex
         handlePositionChange(position.fen, currentMoveIndex);
       }
     } else {
-      console.log('PGNViewer: Invalid position data', {
+      if (DEV) console.log('PGNViewer: Invalid position data', {
         gameDataLength: gameData.length,
         currentMoveIndex,
         validIndex: currentMoveIndex < gameData.length
@@ -141,7 +148,11 @@ export function PGNViewerWrapper({
     }
   }, [currentMoveIndex, gameData, handlePositionChange]);
 
-  // Apply external index from parent
+  // BUG-004 FIX: Apply external index from parent with acknowledgement pattern
+  // Instead of relying on a timeout in App.tsx to clear externalIndex (which raced
+  // with the 200ms poll and 300ms programmatic guard), we now call
+  // onExternalIndexProcessed() after we've applied the change. This guarantees
+  // the parent only clears the value after it's been consumed.
   useEffect(() => {
     if (typeof externalIndex !== 'number') return
     let idx = Math.floor(externalIndex)
@@ -163,11 +174,13 @@ export function PGNViewerWrapper({
         }
       }
     }
-  }, [externalIndex, gameData.length, currentMoveIndex, id])
+    // Acknowledge processing so parent clears externalIndex
+    onExternalIndexProcessed?.()
+  }, [externalIndex, gameData.length, currentMoveIndex, id, onExternalIndexProcessed])
 
   useLayoutEffect(() => {
-    console.log('Initializing pgn-viewer with PGN:', gameDescription);
-    console.log('Parsed game data:', gameData.length, 'positions');
+    if (DEV) console.log('Initializing pgn-viewer with PGN:', gameDescription);
+    if (DEV) console.log('Parsed game data:', gameData.length, 'positions');
 
     // Wait for next tick to ensure DOM element is mounted
     const timer = setTimeout(() => {
@@ -178,7 +191,7 @@ export function PGNViewerWrapper({
       }
 
       try {
-        console.log('Creating pgn-viewer...');
+        if (DEV) console.log('Creating pgn-viewer...');
 
         const viewer = pgnView(id, {
           pgn: gameDescription,
@@ -193,23 +206,23 @@ export function PGNViewerWrapper({
         });
 
         viewerRef.current = viewer;
-        console.log('pgn-viewer created successfully');
+        if (DEV) console.log('pgn-viewer created successfully');
 
         // Delegated click handler: after viewer processes click, read currentMove
         const delegateClick = (evt: Event) => {
           // Debug: surface that we saw a click inside the viewer
           const tag = (evt.target as HTMLElement)?.tagName?.toLowerCase()
-          console.log('PGNViewer: delegate click', tag)
+          if (DEV) console.log('PGNViewer: delegate click', tag)
           // Let the viewer handle the click first, then read its new state in a microtask
           window.setTimeout(() => {
             // If we triggered a programmatic click recently, ignore this delegate event
             const sinceProgrammatic = Date.now() - programmaticChangeRef.current
             if (programmaticChangeRef.current && sinceProgrammatic < 300) {
-              console.log('PGNViewer: ignoring delegate due to recent programmatic change', sinceProgrammatic)
+              if (DEV) console.log('PGNViewer: ignoring delegate due to recent programmatic change', sinceProgrammatic)
               return
             }
             const base = viewerRef.current?.base as { currentMove?: number; mypgn?: unknown } | undefined
-            console.log('PGNViewer: viewerRef.base snapshot', base)
+            if (DEV) console.log('PGNViewer: viewerRef.base snapshot', base)
             let cm = base?.currentMove
 
             // Helpful diagnostics: inspect moves container and attributes
@@ -217,7 +230,7 @@ export function PGNViewerWrapper({
               const container = (viewerRef.current as unknown as { _container?: HTMLElement })?._container
               if (container) {
                 const nodes = container.querySelectorAll('.move, [data-move], [data-index], [data-ply]')
-                console.log('PGNViewer: move nodes count (delegate):', nodes?.length)
+                if (DEV) console.log('PGNViewer: move nodes count (delegate):', nodes?.length)
                 if (nodes && nodes.length > 0) {
                   // Log first few node class lists for debugging
                   for (let i = 0; i < Math.min(6, nodes.length); i++) {
@@ -225,7 +238,7 @@ export function PGNViewerWrapper({
                       const el = nodes[i] as HTMLElement
                       const names = el.getAttributeNames?.() ?? []
                       const attrs = names.map(n => [n, el.getAttribute(n)])
-                      console.log('PGNViewer: move node', i, el.className, attrs)
+                      if (DEV) console.log('PGNViewer: move node', i, el.className, attrs)
                     } catch {
                       /* ignore individual node logging errors */
                     }
@@ -262,10 +275,10 @@ export function PGNViewerWrapper({
               const chessObj = v?.base?.chess
               if (chessObj && typeof chessObj.fen === 'function') {
                 const fen = chessObj.fen()
-                console.log('PGNViewer: fen from viewer', fen)
+                if (DEV) console.log('PGNViewer: fen from viewer', fen)
                 const idx = gameData.findIndex(p => p.fen === fen)
                 if (idx >= 0 && idx < gameData.length && idx !== currentMoveIndex) {
-                  console.log('PGNViewer: delegate resolved index from fen', idx, 'current:', currentMoveIndex)
+                  if (DEV) console.log('PGNViewer: delegate resolved index from fen', idx, 'current:', currentMoveIndex)
                   // Update the internal index - this will trigger position change notification
                   setCurrentMoveIndex(idx)
                 }
@@ -337,7 +350,7 @@ export function PGNViewerWrapper({
             // skip
             // console.log('PGNViewer: poll skipping due to recent programmatic change', sinceProgrammatic)
           } else if (idx !== currentIndexRef.current) {
-            console.log('PGNViewer: poll detected index change', idx)
+            if (DEV) console.log('PGNViewer: poll detected index change', idx)
             setCurrentMoveIndex(idx)
             currentIndexRef.current = idx
           }

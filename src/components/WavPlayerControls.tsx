@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { Button } from './ui/button';
 import { Slider } from './ui/slider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
-import { WavSoundPlayer, type WavConfig } from '../audio/WavSoundPlayer';
+import { useWavPlayer, type WavConfig } from '../audio/WavSoundPlayer';
 import { Play, Square, Volume2, Settings, Loader2, AlertCircle, RotateCcw, Zap } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -26,7 +26,7 @@ export function WavPlayerControls({ currentFen, isEnabled = true }: WavPlayerCon
         toast.success('WAV sound generated and playing');
     }, []);
 
-    const wavPlayer = WavSoundPlayer({
+    const wavPlayer = useWavPlayer({
         currentFen,
         isEnabled,
         onError: handleError,

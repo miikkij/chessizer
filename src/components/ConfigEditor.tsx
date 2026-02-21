@@ -126,11 +126,9 @@ export default function ConfigEditor({ onConfigChange }: { onConfigChange?: (con
         setLoading(false);
     }, [schemas]);
 
-    // Load configs when schemas are loaded
+    // Load configs when schemas are loaded (or even without schemas - BUG-010 FIX)
     useEffect(() => {
-        if (Object.keys(schemas).length > 0) {
-            loadConfigs();
-        }
+        loadConfigs();
     }, [schemas, loadConfigs]);
 
     const handleContentChange = (newContent: string) => {
