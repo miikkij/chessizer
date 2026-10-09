@@ -30,7 +30,7 @@ Built with React, Vite, Tailwind CSS v4, and shadcn/ui components.
 
 ### Prerequisites
 
-- **Node.js** (v18 or higher)
+- **Node.js** (v22.12 or higher)
 - **pnpm** package manager
 - **Python** (v3.8 or higher) - for WAV generator
 
@@ -74,22 +74,22 @@ Built with React, Vite, Tailwind CSS v4, and shadcn/ui components.
 4. **Start the development server**
    ```bash
    # In the main project directory
-   pnpm dev
+   pnpm dev:frontend
    ```
 
 5. **Open your browser**
-   - React app: `http://localhost:5173`
+   - React app: `http://localhost:12173`
    - Python API docs: `http://localhost:8001/docs` (if WAV generator is running)
 
 ## 🎮 Usage
 
 ### Basic Operation
 
-1. **Load a Game**: Select from famous chess games or load your own PGN
-2. **Navigate**: Use the timeline controls to move through the game
-3. **Listen**: 
-   - Click "▶️ Play" in the Tone.js section for real-time audio
-   - Click "Play WAV" in the Python section for high-quality soundscapes
+1. **Load a game**: Choose a sample or open **Import PGN** to paste text or open a `.pgn` file. Comments and custom FEN starting positions are supported. An invalid import keeps the current game open.
+2. **Navigate**: Use the move list, timeline slider or previous/next buttons. Left/Right navigate; Home/End jump to the start/end. The board and audio use the same selected position.
+3. **Listen**: Click **Listen to position**, or press Space, to repeat the current position. Set the repeat interval and volume below the board. Listening does not automatically advance the game.
+4. **Read the position**: Material, available captures and center control are shown beside the board. Activity measures captures, center attacks and check; it is not an engine evaluation.
+5. **Explore further**: Open **Sound tools and advanced settings** for traversal controls, individual sound previews, configuration editing and optional WAV playback. WAV playback requires the Python service and stops when browser audio starts or the position changes.
 
 ### Sound Engine Comparison
 
@@ -103,7 +103,7 @@ Built with React, Vite, Tailwind CSS v4, and shadcn/ui components.
 
 ### Configuration
 
-- **Tone.js Settings**: Adjust BPM, swing, tick duration, and volume in real-time
+- **Browser audio**: Adjust position repeat interval and volume in real time
 - **WAV Settings**: Click ⚙️ to configure tempo, clip length, voice limits, and audio layers
 - **Presets**: Quick settings for different moods (Slow & Atmospheric, Fast & Energetic, Minimal)
 
@@ -113,10 +113,12 @@ Built with React, Vite, Tailwind CSS v4, and shadcn/ui components.
 
 ```bash
 # Development
-pnpm dev          # Start dev server on http://localhost:5173
+pnpm dev:frontend # Browser app only, http://localhost:12173
+pnpm dev          # Browser app and local Python WAV service together
 pnpm build        # Build for production
 pnpm preview      # Preview production build
 pnpm lint         # Run ESLint
+pnpm test         # PGN, navigation, audio lifecycle and React integration regressions
 
 # Docker
 pnpm docker:build # Build Docker image
@@ -129,12 +131,15 @@ pnpm docker:run   # Run in Docker container
 ├── src/
 │   ├── components/         # React components
 │   │   ├── App.tsx        # Main application
+│   │   ├── BoardView.tsx  # Board controlled by the selected timeline frame
+│   │   ├── MoveHistory.tsx # Timeline navigation
 │   │   ├── WavPlayerControls.tsx  # WAV generator UI
 │   │   └── ...
 │   ├── audio/             # Sound engines
 │   │   ├── SoundAgent.ts  # Tone.js real-time engine
 │   │   └── WavSoundPlayer.tsx     # WAV generator integration
 │   └── ...
+├── tests/                 # Node/React regression tests (pnpm test)
 ├── soundAgentsv2/         # Python WAV microservice
 │   ├── main.py           # FastAPI application
 │   ├── requirements.txt  # Python dependencies
@@ -199,13 +204,23 @@ curl -X POST "http://localhost:8001/generate" \
 ### Testing
 
 ```bash
-# Test the WAV microservice
+# Core regressions (does not require audio hardware or a running server)
+pnpm test
+pnpm lint
+pnpm build
+
+# WAV move-event and synthesis regressions (activate the Python environment first)
 cd soundAgentsv2
+python -m unittest test_semantics -v
+
+# Test the WAV microservice
 python test_service.py
 
 # Extended tests with configuration variations  
 python test_service.py --extended
 ```
+
+The frontend tests mount the real board, PGN importer and navigation in JSDOM while mocking audio hardware. They check that visible positions and audio inputs agree, but do not replace listening and layout checks in a browser. WAV regression tests render audio in memory without starting the HTTP service.
 
 ## 🐳 Docker Deployment
 

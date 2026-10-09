@@ -5,44 +5,44 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useWavPlayer, type WavConfig } from '../audio/WavSoundPlayer';
 import { Play, Square, Volume2, Settings, Loader2, AlertCircle, RotateCcw, Zap } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import type { PositionTransition } from '../chess/game';
 
 interface WavPlayerControlsProps {
     currentFen: string;
+    previousFen?: string;
+    transition: PositionTransition;
     isEnabled?: boolean;
 }
 
-export function WavPlayerControls({ currentFen, isEnabled = true }: WavPlayerControlsProps) {
+export function WavPlayerControls({ currentFen, previousFen, transition, isEnabled = true }: WavPlayerControlsProps) {
     const [showConfig, setShowConfig] = useState(false);
-    const [status, setStatus] = useState<'idle' | 'generating' | 'playing' | 'error'>('idle');
 
     const handleError = useCallback((error: string) => {
-        setStatus('error');
         toast.error(`WAV Generation Error: ${error}`);
         console.error('WAV Player Error:', error);
     }, []);
 
     const handleSuccess = useCallback(() => {
-        setStatus('playing');
         toast.success('WAV sound generated and playing');
     }, []);
 
     const wavPlayer = useWavPlayer({
         currentFen,
+        previousFen,
+        transition,
         isEnabled,
         onError: handleError,
         onSuccess: handleSuccess
     });
+    const status = wavPlayer.isGenerating ? 'generating'
+        : wavPlayer.isPlaying ? 'playing'
+            : wavPlayer.error ? 'error' : 'idle';
 
     const handlePlay = useCallback(async () => {
-        if (wavPlayer.isPlaying) {
+        if (wavPlayer.isPlaying || wavPlayer.isGenerating) {
             wavPlayer.stopPlayback();
-            setStatus('idle');
         } else {
-            setStatus('generating');
             await wavPlayer.generateAndPlay();
-            if (!wavPlayer.isGenerating && !wavPlayer.isPlaying) {
-                setStatus('idle');
-            }
         }
     }, [wavPlayer]);
 
@@ -57,7 +57,7 @@ export function WavPlayerControls({ currentFen, isEnabled = true }: WavPlayerCon
     };
 
     const getButtonText = () => {
-        if (wavPlayer.isGenerating) return 'Generating...';
+        if (wavPlayer.isGenerating) return 'Cancel WAV';
         if (wavPlayer.isPlaying) return 'Stop WAV';
         return 'Play WAV';
     };

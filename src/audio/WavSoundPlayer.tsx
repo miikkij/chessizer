@@ -1,8 +1,11 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useLayoutEffect } from 'react';
 import axios from 'axios';
+import type { PositionTransition } from '../chess/game';
 
 interface UseWavPlayerProps {
     currentFen?: string;
+    previousFen?: string;
+    transition: PositionTransition;
     isEnabled?: boolean;
     onError?: (error: string) => void;
     onSuccess?: () => void;
@@ -245,11 +248,10 @@ const DEFAULT_WAV_CONFIG: WavConfig = {
     }
 };
 
-/** @deprecated Use `useWavPlayer` instead */
-export const WavSoundPlayer = useWavPlayer;
-
 export function useWavPlayer({
     currentFen,
+    previousFen,
+    transition,
     isEnabled = true,
     onError,
     onSuccess
@@ -257,51 +259,72 @@ export function useWavPlayer({
     const [isGenerating, setIsGenerating] = useState(false);
     const [isPlaying, setIsPlaying] = useState(false);
     const [wavConfig, setWavConfig] = useState<WavConfig>(DEFAULT_WAV_CONFIG);
-    const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
     const [volume, setVolume] = useState(0.7);
     const [microserviceUrl, setMicroserviceUrl] = useState('http://localhost:8001');
     const [isLooping, setIsLooping] = useState(false);
     const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
-    const [lastFenPlayed, setLastFenPlayed] = useState<string | null>(null);
 
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const audioUrlRef = useRef<string | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
     const generateAndPlayRef = useRef<(() => Promise<void>) | null>(null);
+    const mountedRef = useRef(false);
+    const requestIdRef = useRef(0);
+    const wantsPlaybackRef = useRef(false);
+    const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const positionKey = `${currentFen ?? ''}|${transition.kind}|${previousFen ?? ''}`;
+    const activePositionRef = useRef(positionKey);
+    const playbackSettingsRef = useRef({ volume, isLooping, playbackSpeed });
+
+    const releaseAudio = useCallback(() => {
+        const audio = audioRef.current;
+        if (audio) {
+            audio.pause();
+            audio.removeAttribute('src');
+            audio.load();
+        }
+        if (audioUrlRef.current) {
+            URL.revokeObjectURL(audioUrlRef.current);
+            audioUrlRef.current = null;
+        }
+    }, []);
+
+    const cancelActive = useCallback(() => {
+        requestIdRef.current += 1;
+        abortControllerRef.current?.abort();
+        abortControllerRef.current = null;
+        if (restartTimerRef.current !== null) {
+            clearTimeout(restartTimerRef.current);
+            restartTimerRef.current = null;
+        }
+        releaseAudio();
+    }, [releaseAudio]);
 
     const generateAndPlay = useCallback(async () => {
-        if (!currentFen) {
-            onError?.('No chess position available');
-            return;
-        }
+        if (!mountedRef.current || !currentFen || !isEnabled) return;
 
-        if (!isEnabled) {
-            onError?.('WAV player is disabled');
-            return;
-        }
-
-        // Cancel any existing request
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        }
-
+        cancelActive();
+        const requestId = requestIdRef.current;
         const abortController = new AbortController();
         abortControllerRef.current = abortController;
-
+        wantsPlaybackRef.current = true;
+        setError(null);
+        setIsPlaying(false);
         setIsGenerating(true);
+        const isCurrent = () => mountedRef.current
+            && requestIdRef.current === requestId
+            && activePositionRef.current === positionKey
+            && !abortController.signal.aborted;
 
         try {
-            // Clean up previous audio
-            if (audioUrl) {
-                URL.revokeObjectURL(audioUrl);
-                setAudioUrl(null);
-            }
-
-            // Generate WAV from microservice
             const response = await axios.post(
                 `${microserviceUrl}/generate`,
                 {
                     fen: currentFen,
-                    config: wavConfig
+                    config: wavConfig,
+                    // History navigation and loading never replay move events.
+                    ...(transition.kind === 'forward' && previousFen ? { previousFen } : {})
                 },
                 {
                     responseType: 'blob',
@@ -313,32 +336,24 @@ export function useWavPlayer({
                 }
             );
 
-            if (abortController.signal.aborted) {
-                return;
-            }
+            if (!isCurrent()) return;
 
-            // Create blob URL for audio playback
             const blob = new Blob([response.data], { type: 'audio/wav' });
             const url = URL.createObjectURL(blob);
-            setAudioUrl(url);
-
-            // Play the generated audio
-            if (audioRef.current) {
-                audioRef.current.src = url;
-                audioRef.current.volume = volume;
-                audioRef.current.loop = isLooping;
-                audioRef.current.playbackRate = playbackSpeed;
-                await audioRef.current.play();
-                setIsPlaying(true);
-                setLastFenPlayed(currentFen); // Track which FEN we're playing
-                onSuccess?.();
-            }
+            audioUrlRef.current = url;
+            const audio = audioRef.current;
+            if (!audio) throw new Error('Audio player is unavailable');
+            audio.src = url;
+            audio.volume = playbackSettingsRef.current.volume;
+            audio.loop = playbackSettingsRef.current.isLooping;
+            audio.playbackRate = playbackSettingsRef.current.playbackSpeed;
+            await audio.play();
+            if (!isCurrent()) return;
+            setIsPlaying(true);
+            onSuccess?.();
 
         } catch (error: unknown) {
-            if (axios.isCancel(error) || abortController.signal.aborted) {
-                // Request was cancelled, ignore
-                return;
-            }
+            if (!isCurrent() || axios.isCancel(error)) return;
 
             console.error('Error generating WAV:', error);
 
@@ -346,45 +361,39 @@ export function useWavPlayer({
             if (axios.isAxiosError(error)) {
                 if (error.response?.status === 404 || error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
                     errorMessage = 'WAV server not running. Start it with: cd soundAgentsv2 && start.bat';
-                } else if (error.response?.status === 400) {
-                    errorMessage = `Invalid request: ${error.response.data?.detail || 'Bad request'}`;
+                } else if (error.response?.status === 400 || error.response?.status === 422) {
+                    errorMessage = 'Invalid chess position or WAV configuration';
                 } else if (error.response?.status === 500) {
-                    errorMessage = `Server error: ${error.response.data?.detail || 'Internal error'}`;
+                    errorMessage = 'WAV server could not generate this sound';
                 } else if (error.code === 'ENOTFOUND') {
                     errorMessage = 'Cannot reach WAV server. Check connection and URL.';
                 }
             }
-
+            releaseAudio();
+            wantsPlaybackRef.current = false;
+            setError(errorMessage);
             onError?.(errorMessage);
         } finally {
-            setIsGenerating(false);
-            abortControllerRef.current = null;
+            // An older request must never clear a newer request's busy state.
+            if (isCurrent()) {
+                setIsGenerating(false);
+                abortControllerRef.current = null;
+            }
         }
-    }, [currentFen, isEnabled, wavConfig, microserviceUrl, volume, audioUrl, onError, onSuccess, isLooping, playbackSpeed]);
-
-    // Store the generateAndPlay function in a ref to avoid dependency issues
-    generateAndPlayRef.current = generateAndPlay;
+    }, [currentFen, previousFen, transition.kind, positionKey, isEnabled, wavConfig, microserviceUrl, onError, onSuccess, cancelActive, releaseAudio]);
 
     const stopPlayback = useCallback(() => {
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.currentTime = 0;
-            setIsPlaying(false);
-        }
-
-        // Reset the FEN tracking when stopping
-        setLastFenPlayed(null);
-
-        // Cancel generation if in progress
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-            setIsGenerating(false);
-        }
-    }, []);
+        wantsPlaybackRef.current = false;
+        cancelActive();
+        setIsPlaying(false);
+        setIsGenerating(false);
+        setError(null);
+    }, [cancelActive]);
 
     const handleAudioEnded = useCallback(() => {
         // Only set playing to false if not looping
         if (!isLooping) {
+            wantsPlaybackRef.current = false;
             setIsPlaying(false);
         }
     }, [isLooping]);
@@ -398,10 +407,13 @@ export function useWavPlayer({
 
     const handleLoopChange = useCallback((loop: boolean) => {
         setIsLooping(loop);
+        if (!loop && restartTimerRef.current !== null) {
+            stopPlayback();
+        }
         if (audioRef.current) {
             audioRef.current.loop = loop;
         }
-    }, []);
+    }, [stopPlayback]);
 
     const handleSpeedChange = useCallback((speed: number) => {
         setPlaybackSpeed(speed);
@@ -410,81 +422,48 @@ export function useWavPlayer({
         }
     }, []);
 
-    // Initialize audio element and event listeners
-    useEffect(() => {
-        if (!audioRef.current) {
-            audioRef.current = new Audio();
-        }
+    useLayoutEffect(() => {
+        generateAndPlayRef.current = generateAndPlay;
+        playbackSettingsRef.current = { volume, isLooping, playbackSpeed };
+    }, [generateAndPlay, volume, isLooping, playbackSpeed]);
 
-        const audio = audioRef.current;
-
-        // Set up event listeners
-        audio.addEventListener('ended', handleAudioEnded);
-
-        // Cleanup
+    useLayoutEffect(() => {
+        mountedRef.current = true;
         return () => {
-            audio.removeEventListener('ended', handleAudioEnded);
+            mountedRef.current = false;
+            wantsPlaybackRef.current = false;
+            cancelActive();
         };
-    }, [handleAudioEnded]);
+    }, [cancelActive]);
 
-    // BUG-007 FIX: Auto-regenerate with proper debounce (500ms) and abort previous requests
-    useEffect(() => {
-        let timeoutId: ReturnType<typeof setTimeout>;
-        let aborted = false;
+    useLayoutEffect(() => {
+        const changed = activePositionRef.current !== positionKey;
+        activePositionRef.current = positionKey;
+        if (!changed && isEnabled) return;
 
-        // Only auto-regenerate if:
-        // 1. We're currently playing in loop mode
-        // 2. The current FEN is different from the one we're playing
-        // 3. We have a valid FEN
-        if (isPlaying && isLooping && currentFen && currentFen !== lastFenPlayed) {
-            // Abort any in-flight requests before scheduling new one
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-            }
-
-            // Debounce: 500ms to avoid rapid regeneration during quick position changes
-            timeoutId = setTimeout(async () => {
-                if (aborted) return;
-                if (import.meta.env.DEV) {
-                    console.log(`Auto-regenerating WAV: FEN changed to ${currentFen}`);
-                }
-                try {
-                    if (generateAndPlayRef.current) {
-                        await generateAndPlayRef.current();
-                    }
-                } catch (error) {
-                    if (!aborted) {
-                        console.error('Auto-regeneration failed:', error);
-                    }
+        const restart = wantsPlaybackRef.current && isLooping && isEnabled && !!currentFen;
+        cancelActive();
+        setIsPlaying(false);
+        setIsGenerating(false);
+        setError(null);
+        wantsPlaybackRef.current = restart;
+        if (restart) {
+            setIsGenerating(true);
+            restartTimerRef.current = setTimeout(() => {
+                restartTimerRef.current = null;
+                if (wantsPlaybackRef.current && mountedRef.current) {
+                    void generateAndPlayRef.current?.();
                 }
             }, 500);
         }
-
-        return () => {
-            aborted = true;
-            if (timeoutId) {
-                clearTimeout(timeoutId);
-            }
-        };
-    }, [currentFen, lastFenPlayed, isPlaying, isLooping]);
-
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-            }
-            if (audioUrl) {
-                URL.revokeObjectURL(audioUrl);
-            }
-        };
-    }, [audioUrl]);
+    }, [positionKey, currentFen, isEnabled, isLooping, cancelActive]);
 
     return {
         generateAndPlay,
         stopPlayback,
         isGenerating,
         isPlaying,
+        error,
         volume,
         setVolume: handleVolumeChange,
         isLooping,

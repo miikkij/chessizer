@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Chess Sound WAV Generator", 
+    title="Chess Sound WAV Generator",
     description="Generates stereo WAV soundscapes from chess positions",
     version="1.0.0"
 )
@@ -41,7 +41,7 @@ app.add_middleware(
         "http://localhost:5173",   # Vite default port
         "http://localhost:12173",  # Custom Vite port
         "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173", 
+        "http://127.0.0.1:5173",
         "http://127.0.0.1:12173",
         "http://localhost:8080",   # Docker container
     ],
@@ -86,7 +86,7 @@ class GrooveConfig(BaseModel):
 
 class EnvelopeConfig(BaseModel):
     a: float = Field(default=5.0, description="Attack ms")
-    d: float = Field(default=60.0, description="Decay ms")  
+    d: float = Field(default=60.0, description="Decay ms")
     s: float = Field(default=0.2, description="Sustain level")
     r: float = Field(default=80.0, description="Release ms")
 
@@ -124,7 +124,7 @@ class EventCueConfig(BaseModel):
     gainDb: float = Field(default=-4.0)
     panBySide: Optional[Dict[str, float]] = None
     fromHzWhite: Optional[float] = None
-    toHzWhite: Optional[float] = None  
+    toHzWhite: Optional[float] = None
     fromHzBlack: Optional[float] = None
     toHzBlack: Optional[float] = None
 
@@ -184,18 +184,18 @@ def note_to_hz(note: str) -> float:
     names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
     if len(note) < 2:
         raise ValueError(f"Invalid note format: {note}")
-    
+
     name = note[:-1]
     octave_str = note[-1]
-    
+
     if name not in names:
         raise ValueError(f"Unknown note name: {name}")
-    
+
     try:
         octave = int(octave_str)
     except ValueError:
         raise ValueError(f"Invalid octave: {octave_str}")
-    
+
     n = names.index(name)
     midi = 12 * (octave + 1) + n
     return 440.0 * (2 ** ((midi - 69) / 12))
@@ -206,13 +206,13 @@ def env_adsr(total_ms: float, a: float = 5, d: float = 80, s: float = 0.2, r: fl
     N = int(t * SR)
     if N <= 0:
         return np.array([])
-    
+
     env = np.zeros(N, dtype=np.float32)
     aN = int(a / 1000 * SR)
     dN = int(d / 1000 * SR)
     rN = int(r / 1000 * SR)
     sN = max(0, N - aN - dN - rN)
-    
+
     i = 0
     if aN > 0 and i < N:
         end_i = min(i + aN, N)
@@ -230,7 +230,7 @@ def env_adsr(total_ms: float, a: float = 5, d: float = 80, s: float = 0.2, r: fl
         end_i = min(i + rN, N)
         if end_i > i:
             env[i:end_i] = np.linspace(s, 0, end_i - i, False)
-    
+
     return env
 
 def osc(kind: str, hz: float, dur_ms: float, brightness: float = 0.0) -> np.ndarray:
@@ -238,7 +238,7 @@ def osc(kind: str, hz: float, dur_ms: float, brightness: float = 0.0) -> np.ndar
     t = np.arange(int(dur_ms / 1000 * SR)) / SR
     if len(t) == 0:
         return np.array([], dtype=np.float32)
-    
+
     if kind == "sine":
         w = np.sin(2 * np.pi * hz * t)
     elif kind == "triangle":
@@ -251,13 +251,13 @@ def osc(kind: str, hz: float, dur_ms: float, brightness: float = 0.0) -> np.ndar
         w = np.random.uniform(-1, 1, len(t))
     else:
         w = np.sin(2 * np.pi * hz * t)
-    
+
     # Brightness as simple high shelf
     if brightness > 0:
         alpha = min(0.99, brightness)
         diff = np.append([0], np.diff(w))
         w = (1 - alpha) * w + alpha * diff
-    
+
     return w.astype(np.float32)
 
 def pan_stereo(x: np.ndarray, pan: float) -> np.ndarray:
@@ -272,15 +272,15 @@ def place(buf: np.ndarray, start_sample: int, x: np.ndarray):
     """Mix audio into buffer at specified position"""
     if len(x) == 0 or start_sample >= buf.shape[0] or start_sample < 0:
         return
-    
+
     end = start_sample + x.shape[0]
     if end > buf.shape[0]:
         end = buf.shape[0]
         x = x[:end - start_sample]
-    
+
     if x.ndim == 1:
         x = pan_stereo(x, 0.0)  # Convert mono to stereo
-    
+
     buf[start_sample:end] += x
 
 def euclidean_pattern(steps: int, pulses: int, rotate: int = 0) -> List[int]:
@@ -295,7 +295,7 @@ def euclidean_pattern(steps: int, pulses: int, rotate: int = 0) -> List[int]:
         divisor = steps - pulses
         remainders.append(pulses)
         level = 0
-        
+
         while True:
             counts.append(divisor // remainders[level])
             remainders.append(divisor % remainders[level])
@@ -304,7 +304,7 @@ def euclidean_pattern(steps: int, pulses: int, rotate: int = 0) -> List[int]:
             if remainders[level] <= 1:
                 break
         counts.append(divisor)
-        
+
         def build(level):
             if level == -1:
                 return [0]
@@ -316,16 +316,16 @@ def euclidean_pattern(steps: int, pulses: int, rotate: int = 0) -> List[int]:
             if remainders[level] != 0:
                 res += build(level - 2)
             return res
-        
+
         pat = build(level)
         while len(pat) < steps:
             pat += build(level - 1) if level > 0 else [0]
         pat = pat[:steps]
-    
+
     if rotate:
         rotate = rotate % steps
         pat = pat[-rotate:] + pat[:-rotate]
-    
+
     return pat
 
 def convolve2d(mat: np.ndarray, k: np.ndarray) -> np.ndarray:
@@ -334,7 +334,7 @@ def convolve2d(mat: np.ndarray, k: np.ndarray) -> np.ndarray:
     kh, kw = k.shape
     ph, pw = kh // 2, kw // 2
     out = np.zeros_like(mat, dtype=np.float32)
-    
+
     for y in range(h):
         for x in range(w):
             s = 0.0
@@ -344,7 +344,7 @@ def convolve2d(mat: np.ndarray, k: np.ndarray) -> np.ndarray:
                     xx = min(w - 1, max(0, x + kx - pw))
                     s += mat[yy, xx] * k[ky, kx]
             out[y, x] = s
-    
+
     return out
 
 def semitone_to_freq(base_hz: float, semi: int) -> float:
@@ -365,14 +365,14 @@ def drum_voice(voice_type: str, hz: float, decay_ms: float) -> np.ndarray:
     else:
         w = osc("sine", hz, decay_ms)
         env = env_adsr(decay_ms, a=5, d=decay_ms * 0.8, s=0.0, r=decay_ms * 0.2)
-    
+
     return w * env
 
 def write_wav_bytes(data: np.ndarray, sr: int = 48000, bit_depth: int = 16) -> bytes:
     """Write numpy array to WAV bytes"""
     # Clip to prevent distortion
     y = np.clip(data, -1.0, 1.0)
-    
+
     # Convert to integer format
     if bit_depth == 16:
         y16 = (y * 32767.0).astype(np.int16)
@@ -385,12 +385,12 @@ def write_wav_bytes(data: np.ndarray, sr: int = 48000, bit_depth: int = 16) -> b
             # Convert to 3-byte little-endian
             y24_bytes.extend([
                 sample & 0xFF,
-                (sample >> 8) & 0xFF, 
+                (sample >> 8) & 0xFF,
                 (sample >> 16) & 0xFF
             ])
         y16 = np.array(y24_bytes, dtype=np.uint8)
         sample_width = 3
-    
+
     # Create WAV in memory
     buf = BytesIO()
     with wave.open(buf, "wb") as wf:
@@ -401,25 +401,55 @@ def write_wav_bytes(data: np.ndarray, sr: int = 48000, bit_depth: int = 16) -> b
             wf.writeframes(y16.tobytes())
         else:
             wf.writeframes(bytes(y16))
-    
+
     return buf.getvalue()
 
 # === Chess Analysis Functions ===
 
-def fen_to_board_matrix(fen: str) -> np.ndarray:
-    """Convert FEN to 8x8 numpy array with piece codes"""
+def parse_position(fen: str) -> chess.Board:
+    """Require a valid chess position before deriving sounds or move events."""
     try:
         board = chess.Board(fen)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid FEN: {e}")
-    
+    if not board.is_valid():
+        raise HTTPException(status_code=400, detail="Invalid FEN: illegal chess position")
+    return board
+
+
+def capture_side(previous_fen: Optional[str], current_fen: str) -> Optional[str]:
+    """Return the capturing side only for one verified legal forward move.
+
+    Full normalized FEN comparison includes turn, castling rights and move
+    counters. A jump, backward step or unchanged position is not a move event.
+    """
+    if previous_fen is None:
+        return None
+    previous = parse_position(previous_fen)
+    current = parse_position(current_fen)
+    expected_fen = current.fen()
+    side = "white" if previous.turn else "black"
+    for move in list(previous.legal_moves):
+        is_capture = previous.is_capture(move)
+        previous.push(move)
+        matches = previous.fen() == expected_fen
+        previous.pop()
+        if matches:
+            return side if is_capture else None
+    return None
+
+
+def fen_to_board_matrix(fen: str) -> np.ndarray:
+    """Convert FEN to 8x8 numpy array with piece codes"""
+    board = parse_position(fen)
+
     matrix = np.zeros((8, 8), dtype=np.int8)
-    
+
     piece_values = {
         chess.PAWN: 1, chess.KNIGHT: 2, chess.BISHOP: 3,
         chess.ROOK: 4, chess.QUEEN: 5, chess.KING: 6
     }
-    
+
     for square in chess.SQUARES:
         piece = board.piece_at(square)
         if piece:
@@ -429,31 +459,28 @@ def fen_to_board_matrix(fen: str) -> np.ndarray:
             if not piece.color:  # Black pieces negative
                 value = -value
             matrix[row, col] = value
-    
+
     return matrix
 
 def analyze_position(fen: str) -> Dict[str, Any]:
     """Analyze chess position for sound generation"""
-    try:
-        board = chess.Board(fen)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid FEN: {e}")
-    
+    board = parse_position(fen)
+
     # Compute metrics
     legal_moves = list(board.legal_moves)
     captures = [m for m in legal_moves if board.is_capture(m)]
-    
+
     # Center control (e4, d4, e5, d5)
     center_squares = [chess.E4, chess.D4, chess.E5, chess.D5]
-    center_control = sum(1 for sq in center_squares 
-                        if board.is_attacked_by(chess.WHITE, sq) or 
+    center_control = sum(1 for sq in center_squares
+                        if board.is_attacked_by(chess.WHITE, sq) or
                            board.is_attacked_by(chess.BLACK, sq))
-    
+
     # Material count
     material = {"white": 0, "black": 0}
-    piece_values = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, 
+    piece_values = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3,
                    chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
-    
+
     for square in chess.SQUARES:
         piece = board.piece_at(square)
         if piece:
@@ -462,7 +489,7 @@ def analyze_position(fen: str) -> Dict[str, Any]:
                 material["white"] += value
             else:
                 material["black"] += value
-    
+
     return {
         "in_check": board.is_check(),
         "legal_moves": len(legal_moves),
@@ -479,7 +506,7 @@ def get_spiral_traversal_order() -> List[Tuple[int, int]]:
     centers = [(3, 3), (4, 3), (3, 4), (4, 4)]  # d4, e4, d5, e5
     seen = set(centers)
     order.extend(centers)
-    
+
     layers = 1
     while len(order) < 64:
         added = []
@@ -494,7 +521,7 @@ def get_spiral_traversal_order() -> List[Tuple[int, int]]:
                         break
         order.extend(added)
         layers += 1
-    
+
     return order
 
 # === Main Sound Generation Function ===
@@ -504,19 +531,20 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
     try:
         config = request.config
         fen = request.fen
-        
+
         # Initialize audio buffer
         length_ms = config.audio.lengthMs
         N = int(SR * length_ms / 1000)
         stereo = np.zeros((N, 2), dtype=np.float32)
-        
+
         # Analyze position
         board_matrix = fen_to_board_matrix(fen)
         analysis = analyze_position(fen)
-        
+        capturing_side = capture_side(request.previousFen, fen)
+
         if config.diagnostics.logSchedule:
             logger.info(f"Generating WAV for position: {analysis}")
-        
+
         # === Layer 1: Groove ===
         tempo = config.groove.tempoBpm
         beat_dur = 60.0 / tempo
@@ -524,27 +552,27 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
         bars = config.groove.bars
         total_beats = bar_beats * bars
         loop_len_s = beat_dur * total_beats
-        
+
         # Build drum patterns
         for track in config.groove.tracks:
             if track.voice not in config.groove.kit:
                 continue
-                
+
             voice_config = config.groove.kit[track.voice]
             pattern = euclidean_pattern(track.steps, track.pulses, track.rotate)
             step_s = loop_len_s / track.steps
-            
+
             # Generate drum voice
             voice_wave = drum_voice(
-                voice_config.type, 
-                voice_config.toneHz, 
+                voice_config.type,
+                voice_config.toneHz,
                 voice_config.decayMs
             )
             voice_stereo = pan_stereo(
-                voice_wave * db_to_lin(voice_config.gainDb), 
+                voice_wave * db_to_lin(voice_config.gainDb),
                 voice_config.pan
             )
-            
+
             # Place hits in timeline
             start_times = [i * step_s for i, hit in enumerate(pattern) if hit == 1]
             t0 = 0.0
@@ -553,60 +581,60 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
                     pos = int((t0 + st) * SR)
                     place(stereo, pos, voice_stereo)
                 t0 += loop_len_s
-        
+
         # === Layer 2: Halo Field ===
         presence = (board_matrix != 0).astype(np.float32)
         kernel = np.array(config.halo.kernel, dtype=np.float32)
         halo = convolve2d(presence, kernel)
-        
+
         # Normalize halo
         if halo.max() > halo.min():
             halo = (halo - halo.min()) / (halo.max() - halo.min())
-        
+
         # === Layer 3: Pulse Grid ===
         traversal_order = get_spiral_traversal_order()
         tick_ms = config.traversal.tickDurationMs
         onset_min, onset_max = config.limits.onsetOffsetMs
         ticks = int(length_ms / tick_ms)
-        
+
         for ti in range(ticks):
             start_ms = ti * tick_ms
             cells_per_tick = 4
             start_idx = (ti * cells_per_tick) % 64
             cells_in_tick = traversal_order[start_idx:start_idx + cells_per_tick]
-            
+
             active_cells = []
             for y, x in cells_in_tick:
                 piece_code = int(board_matrix[y, x])
                 if piece_code != 0:
                     active_cells.append((y, x, piece_code))
-            
+
             # Limit concurrent voices
             active_cells = active_cells[:config.limits.maxConcurrentVoices]
-            
+
             for idx, (y, x, piece_code) in enumerate(active_cells):
                 # Determine piece type and color
                 piece_type = abs(piece_code)
                 color = "white" if piece_code > 0 else "black"
-                
+
                 piece_names = {1: "pawn", 2: "knight", 3: "bishop", 4: "rook", 5: "queen", 6: "king"}
                 piece_name = piece_names.get(piece_type, "pawn")
-                
+
                 if piece_name not in config.pulseGrid.earcons:
                     continue
-                
+
                 earcon = config.pulseGrid.earcons[piece_name]
                 base_hz = note_to_hz(config.pulseGrid.register[color])
                 pan = config.pulseGrid.pan[color]
                 gain_db = config.pulseGrid.gainDb[color]
                 halo_value = halo[y, x]
                 brightness = 0.1 + 0.8 * halo_value
-                
+
                 # Onset timing
                 jitter = np.random.uniform(onset_min, onset_max)
                 t_ms = start_ms + jitter
                 pos = int(t_ms / 1000 * SR)
-                
+
                 # Generate earcon
                 if earcon.pattern:
                     # Pattern-based earcon
@@ -617,16 +645,17 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
                         env = env_adsr(step.durMs, **earcon.env.dict())
                         final_wave = wave * env * db_to_lin(gain_db)
                         place(stereo, step_pos, pan_stereo(final_wave, pan))
-                
-                elif earcon.chord:
-                    # Chord-based earcon
-                    for semitone in earcon.chord:
+
+                elif earcon.chord or earcon.dyad:
+                    # Chords and the king's dyad use the same polyphonic voice.
+                    notes = earcon.chord or earcon.dyad
+                    for semitone in notes:
                         hz = semitone_to_freq(base_hz, semitone)
                         wave = osc(earcon.osc, hz, earcon.durMs, brightness=brightness)
                         env = env_adsr(earcon.durMs, **earcon.env.dict())
-                        final_wave = wave * env * db_to_lin(gain_db) / len(earcon.chord)
+                        final_wave = wave * env * db_to_lin(gain_db) / len(notes)
                         place(stereo, pos, pan_stereo(final_wave, pan))
-                
+
                 elif earcon.arp and earcon.stepMs:
                     # Arpeggio-based earcon
                     for i, semitone in enumerate(earcon.arp):
@@ -637,7 +666,7 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
                         env = env_adsr(step_dur, **earcon.env.dict())
                         final_wave = wave * env * db_to_lin(gain_db)
                         place(stereo, step_pos, pan_stereo(final_wave, pan))
-        
+
         # === Layer 4: Event Cues ===
         # Add capture and check sounds if applicable
         if analysis["in_check"]:
@@ -653,7 +682,7 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
                     to_hz = check_config.toHzBlack
                 else:
                     from_hz, to_hz = 800, 1200
-                
+
                 pos = int(1.5 * SR)  # Place at 1.5 seconds
                 N_glide = int(check_config.durMs / 1000 * SR)
                 t = np.linspace(0, 1, N_glide, False)
@@ -664,24 +693,24 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
                 final_wave = wave * env * db_to_lin(check_config.gainDb)
                 pan_val = check_config.panBySide.get(color, 0.0) if check_config.panBySide else 0.0
                 place(stereo, pos, pan_stereo(final_wave, pan_val))
-        
-        # Simulate capture event at 2.5s for demo
-        if analysis["captures_available"] > 0:
+
+        # A legal capture opportunity is not an event: use the verified move.
+        if capturing_side is not None:
             capture_config = config.events.capture
             if capture_config.type == "click":
-                pos = int(2.5 * SR)
+                pos = int(max(0, capture_config.leadMs or 0) / 1000 * SR)
                 wave = osc("noise", 8000, capture_config.durMs)
                 env = env_adsr(capture_config.durMs, a=1, d=capture_config.durMs-1, s=0.0, r=1)
                 final_wave = wave * env * db_to_lin(capture_config.gainDb)
-                pan_val = capture_config.panBySide.get("white", 0.0) if capture_config.panBySide else 0.0
+                pan_val = capture_config.panBySide.get(capturing_side, 0.0) if capture_config.panBySide else 0.0
                 place(stereo, pos, pan_stereo(final_wave, pan_val))
-        
+
         # === Layer 5: Ambient Bed ===
         # Simple ambient drone based on material balance
         ambient_config = config.ambient
         root_hz = note_to_hz(ambient_config.root)
         material_balance = analysis["material_balance"]
-        
+
         # Choose chord quality based on material advantage
         if material_balance > 1:
             chord_semitones = [0, 4, 7]  # Major triad
@@ -689,24 +718,26 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
             chord_semitones = [0, 3, 7]  # Minor triad
         else:
             chord_semitones = [0, 3, 6, 10]  # Diminished 7th
-        
+
         for semitone in chord_semitones:
             hz = semitone_to_freq(root_hz, semitone)
             wave = osc("sine", hz, length_ms, brightness=0.0)
             env = np.ones_like(wave) * db_to_lin(ambient_config.gainDb) / len(chord_semitones)
             final_wave = wave * env
             place(stereo, 0, pan_stereo(final_wave, 0.0))
-        
+
         # === Final Processing ===
         # Apply headroom and limiting
         headroom_factor = db_to_lin(-config.audio.headroomDb)
         peak = np.max(np.abs(stereo))
         if peak > 0:
             stereo *= min(headroom_factor, MAX_AMPLITUDE / peak)
-        
+
         # Convert to bytes
         return write_wav_bytes(stereo, SR, config.audio.bitDepth)
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating WAV: {e}")
         raise HTTPException(status_code=500, detail=f"Error generating WAV: {str(e)}")
@@ -742,7 +773,7 @@ curl -X POST "http://localhost:8001/generate" \\
 async def generate_wav(request: GenerateRequest):
     """Generate WAV file from chess position and sound configuration"""
     wav_bytes = generate_chess_wav(request)
-    
+
     return Response(
         content=wav_bytes,
         media_type="audio/wav",

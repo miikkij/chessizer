@@ -1,6 +1,10 @@
 import * as Tone from "tone"
 import { Chess } from "chess.js"
-import { buildTraversal, makeRowSequential, type Traversal, type RowParams } from "./traversal"
+import { buildTraversal, type Traversal } from "./traversal"
+import type { PositionTransition } from "../chess/game"
+import { calculatePositionMetrics, type PositionMetrics } from "../chess/metrics"
+import { captureSideForTransition, materialBrightness } from "./audioSemantics"
+import { NoteQueue } from "./NoteQueue"
 
 // Minimal types to support the JSON-driven config described in soundAGENTS.md
 export type Step = {
@@ -99,25 +103,48 @@ type AttackReleaseNode = {
   ) => void
   triggerAttack?: (note: string | number | Array<string | number>, time?: number, velocity?: number) => void
   triggerRelease?: (note?: string | number | Array<string | number>, time?: number) => void
-  releaseAll?: () => void
+  releaseAll?: (time?: number) => void
+  stop?: (time?: number) => void
   dispose?: () => void
   volume?: { value: number }
 }
 
+type NoteValue = string | number | Array<string | number>
+type SingleNote = string | number
+type CancellableVoice = AttackReleaseNode & {
+  envelope: Pick<Tone.Envelope, "release" | "getValueAtTime" | "cancel">
+  modulationEnvelope?: Pick<Tone.Envelope, "release" | "getValueAtTime" | "cancel">
+}
+
 type BuiltVoice = {
   node: AttackReleaseNode
+  type: VoiceSpec["type"]
   tail: Tone.ToneAudioNode
+  effects: Tone.ToneAudioNode[]
+  synths: Set<CancellableVoice>
+  outstandingNotes?: SingleNote[]
   panner?: Tone.Panner
   filter?: Tone.Filter
 }
 
 function buildVoice(spec: VoiceSpec): BuiltVoice {
   let node: AttackReleaseNode
+  const synths = new Set<CancellableVoice>()
   if (spec.type === "PolySynth") {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const VoiceCtor: any = (Tone as any)[spec.voice || "Synth"]
+    class TrackedVoice extends VoiceCtor {
+      constructor(...args: unknown[]) {
+        super(...args)
+        synths.add(this as unknown as CancellableVoice)
+      }
+      dispose() {
+        synths.delete(this as unknown as CancellableVoice)
+        return super.dispose()
+      }
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    node = new (Tone as any).PolySynth(VoiceCtor, (spec.options as object) || {}) as any
+    node = new (Tone as any).PolySynth(TrackedVoice, (spec.options as object) || {}) as any
   } else if (spec.type === "Sampler") {
     node = new Tone.Sampler((spec.options as object) || {}) as unknown as AttackReleaseNode
   } else if (spec.type === "Player") {
@@ -126,15 +153,18 @@ function buildVoice(spec: VoiceSpec): BuiltVoice {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const VoiceCtor: any = (Tone as any)[spec.voice || "Synth"]
     node = new VoiceCtor((spec.options as object) || {}) as unknown as AttackReleaseNode
+    synths.add(node as CancellableVoice)
   }
 
   let current: Tone.ToneAudioNode = node as unknown as Tone.ToneAudioNode
+  const effects: Tone.ToneAudioNode[] = []
   let panner: Tone.Panner | undefined
   let filter: Tone.Filter | undefined
   for (const stage of spec.chain || []) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const Ctor: any = (Tone as any)[stage.node]
     const next: Tone.ToneAudioNode = new Ctor((stage.options as object) || {})
+    effects.push(next)
     current.connect(next)
     current = next
     if (next instanceof Tone.Panner) panner = next
@@ -147,7 +177,7 @@ function buildVoice(spec: VoiceSpec): BuiltVoice {
     ; (node as AttackReleaseNode).volume!.value = spec.volumeDb
   }
 
-  return { node, tail: current, panner, filter }
+  return { node, type: spec.type, tail: current, effects, synths, panner, filter }
 }
 
 function scheduleEarconAt(
@@ -158,6 +188,7 @@ function scheduleEarconAt(
   pitchOffset: number | undefined,
   filterTintHz: number | undefined,
   voices: Record<string, BuiltVoice>,
+  schedule: (voice: BuiltVoice, notes: NoteValue, duration: number, time: number, velocity: number) => void,
   /** BUG-018 FIX: optional file-based spatial pan override */
   filePan?: number,
 ) {
@@ -181,9 +212,7 @@ function scheduleEarconAt(
       when: number,
       vel: number,
     ) => {
-      if (typeof v.node.triggerAttackRelease === "function") {
-        v.node.triggerAttackRelease(notes as string | number | Array<string | number>, dur, when, vel)
-      }
+      schedule(v, notes, dur, when, vel)
     }
     const toHz = (semi: number) => Tone.Frequency(base).transpose(semi + (pitchOffset ?? 0)).toFrequency()
     if (step.n) {
@@ -223,13 +252,24 @@ export class SoundAgent {
   private limiter: Tone.Limiter | null = null
   private compressor: Tone.Compressor | null = null
   private initialized = false
+  private disposed = false
+  private initPromise: Promise<void> | null = null
+  private masterVolume = 0.7
+  private playbackRequest = 0
+  private playbackListener: ((playing: boolean) => void) | null = null
+  private releaseTimer: ReturnType<typeof setTimeout> | null = null
+  private auditionTimer: ReturnType<typeof setTimeout> | null = null
+  private noteQueue = new NoteQueue({
+    now: () => Tone.now(),
+    setTimeout: (callback, seconds) => Tone.getContext().setTimeout(callback, seconds),
+    clearTimeout: (id) => { Tone.getContext().clearTimeout(id) },
+  })
   private repeatId: number | null = null
   private stopId: number | null = null
   private running = false
   private droneActive = false
-  private droneNote: string | number | null = null
   private currentFen = ""
-  private previousFen = ""
+  private transition: PositionTransition | undefined
   private positionVersion = 0
   private handledPositionVersion = -1
   private static readonly TraversalParamsEmpty: Record<string, unknown> = {}
@@ -237,31 +277,44 @@ export class SoundAgent {
   // BUG-002 FIX: Cache Chess instance and pre-computed data to avoid per-tick allocation
   private cachedChess: Chess | null = null
   private cachedIntensity = 0
+  private cachedMetrics: PositionMetrics | null = null
   private cachedBoardPieces: { square: string; type: string; color: "white" | "black" }[] = []
-  private cachedPrevPieceCount = 0
 
   constructor(cfg: SoundAgentConfig) {
     this.cfg = cfg
   }
 
   async init(): Promise<void> {
-    if (this.initialized) return
-    await Tone.start() // user gesture required; call from Play handler
+    if (this.disposed) return
+    if (this.initPromise) return this.initPromise
+    this.initPromise = (async () => {
+      await Tone.start() // Resume the context on every user-initiated play or audition.
+      if (this.disposed || this.initialized) return
 
-    // Build master bus: Gain -> Compressor -> Limiter -> Output
-    this.masterGain = new Tone.Gain(0) // Start at 0 for fade-in
-    const headroomDb = this.cfg.limits?.hardHeadroomDb ?? 6
-    this.compressor = new Tone.Compressor({ threshold: -18, ratio: 3, knee: 6 })
-    this.limiter = new Tone.Limiter({ threshold: -Math.abs(headroomDb) })
-    this.masterGain.connect(this.compressor)
-    this.compressor.connect(this.limiter)
-    this.limiter.connect(Tone.getDestination())
+      try {
+        // Build master bus: Gain -> Compressor -> Limiter -> Output
+        this.masterGain = new Tone.Gain(0)
+        const headroomDb = this.cfg.limits?.hardHeadroomDb ?? 6
+        this.compressor = new Tone.Compressor({ threshold: -18, ratio: 3, knee: 6 })
+        this.limiter = new Tone.Limiter({ threshold: -Math.abs(headroomDb) })
+        this.masterGain.connect(this.compressor)
+        this.compressor.connect(this.limiter)
+        this.limiter.connect(Tone.getDestination())
 
-    this.applyTransport()
-    this.buildVoices()
-    // initialize traversal with a default (will rebuild on first setPosition or tick)
-    this.traversal = makeRowSequential(this.cfg.traversal?.params as RowParams)
-    this.initialized = true
+        this.applyTransport()
+        this.buildVoices()
+        this.traversal = this.buildTraversalForPosition(this.cachedChess ?? undefined)
+        this.initialized = true
+      } catch (error) {
+        this.disposeNodes()
+        throw error
+      }
+    })()
+    try {
+      await this.initPromise
+    } finally {
+      this.initPromise = null
+    }
   }
 
   setTickDuration(ms: number): void {
@@ -273,11 +326,25 @@ export class SoundAgent {
   }
 
   setMasterVolume(v: number): void {
-    if (!this.masterGain) return
-    this.masterGain.gain.rampTo(Math.max(0, Math.min(1, v)), 0.1)
+    if (!Number.isFinite(v)) return
+    this.masterVolume = Math.max(0, Math.min(1, v))
+    if (this.masterGain && (this.running || this.auditionTimer !== null)) {
+      this.masterGain.gain.rampTo(this.masterVolume, 0.1)
+    }
   }
 
-  // Transport settings are currently unused. We schedule directly on the audio clock for simplicity.
+  setPlaybackListener(listener: ((playing: boolean) => void) | null): void {
+    this.playbackListener = listener
+    listener?.(this.running)
+  }
+
+  private setRunning(playing: boolean): void {
+    if (this.running === playing) return
+    this.running = playing
+    this.playbackListener?.(playing)
+  }
+
+  // Apply musical timing settings to the same transport used by the tick scheduler.
   private applyTransport(): void {
     const t = Tone.getTransport ? Tone.getTransport() : Tone.Transport
     const c = this.cfg.transport || {}
@@ -290,8 +357,15 @@ export class SoundAgent {
   }
 
   setTransport(opts: Partial<NonNullable<SoundAgentConfig["transport"]>>): void {
+    const previousBpm = this.cfg.transport?.bpm
     this.cfg.transport = { ...(this.cfg.transport || {}), ...opts }
+    if (!this.initialized) return
     this.applyTransport()
+    // Tone converts a numeric seconds interval to transport ticks when scheduled.
+    // Recreate it at the new tempo so the user's repeat interval remains in seconds.
+    if (this.running && typeof opts.bpm === "number" && opts.bpm !== previousBpm) {
+      this.reschedule()
+    }
   }
 
   private buildVoices(): void {
@@ -326,77 +400,144 @@ export class SoundAgent {
   }
 
   stop(): void {
-    const transport = Tone.getTransport ? Tone.getTransport() : Tone.Transport
-    if (this.repeatId !== null) {
-      transport.clear(this.repeatId)
-      this.repeatId = null
+    this.playbackRequest++
+    if (this.repeatId !== null || this.stopId !== null) {
+      const transport = Tone.getTransport()
+      if (this.repeatId !== null) transport.clear(this.repeatId)
+      if (this.stopId !== null) transport.clear(this.stopId)
     }
-    if (this.stopId !== null) {
-      transport.clear(this.stopId)
-      this.stopId = null
-    }
-    this.running = false
+    this.repeatId = null
+    this.stopId = null
+    this.clearReleaseTimers()
+    this.setRunning(false)
 
     // AUDIO FADE FIX: Fade out over 100ms before releasing voices
     if (this.masterGain) {
       this.masterGain.gain.rampTo(0, 0.1)
     }
 
-    // BUG-005 FIX: Release drone on stop
-    this.releaseDrone()
+    this.cancelPositionNotes()
 
     // Release any envelopes where possible (after a short delay for fade-out)
-    setTimeout(() => {
+    if (this.initialized) this.releaseTimer = setTimeout(() => {
+      this.releaseTimer = null
       Object.values(this.voices).forEach((v) => {
-        if (typeof v.node.releaseAll === "function") v.node.releaseAll()
+        if (v.node.releaseAll) v.node.releaseAll()
+        else if (v.type === "Synth") v.node.triggerRelease?.()
+        else if (v.type === "Player") v.node.stop?.()
       })
     }, 120)
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     this.stop()
-    // Allow fade-out to complete before disposing nodes
-    setTimeout(() => {
-      Object.values(this.voices).forEach((v) => v.node.dispose?.())
-      this.voices = {}
-      this.compressor?.dispose()
-      this.compressor = null
-      this.masterGain?.dispose()
-      this.masterGain = null
-      this.limiter?.dispose()
-      this.limiter = null
-      this.initialized = false
-      this.cachedChess = null
-    }, 150)
+    this.clearReleaseTimers()
+    this.disposeNodes()
+    this.cachedChess = null
+    this.cachedMetrics = null
+    this.playbackListener = null
   }
 
-  setPosition(fen: string): void {
+  private clearReleaseTimers(): void {
+    if (this.releaseTimer !== null) clearTimeout(this.releaseTimer)
+    if (this.auditionTimer !== null) clearTimeout(this.auditionTimer)
+    this.releaseTimer = null
+    this.auditionTimer = null
+  }
+
+  private disposeNodes(): void {
+    Object.values(this.voices).forEach((voice) => {
+      voice.node.dispose?.()
+      voice.effects.forEach((effect) => effect.dispose())
+    })
+    this.voices = {}
+    this.compressor?.dispose()
+    this.compressor = null
+    this.masterGain?.dispose()
+    this.masterGain = null
+    this.limiter?.dispose()
+    this.limiter = null
+    this.initialized = false
+  }
+
+  /** Cancel both queued motifs and notes already handed to Web Audio's lookahead. */
+  private cancelPositionNotes(): void {
+    this.noteQueue.clear()
+    if (this.initialized) {
+      const time = Tone.immediate()
+      for (const voice of Object.values(this.voices)) {
+        if (voice.type === "PolySynth" && voice.outstandingNotes?.length) {
+          // The public API also marks PolySynth's note entries as released. Releasing
+          // only its mono voices leaves stale entries that could steal a later note's release.
+          voice.node.triggerRelease?.([...voice.outstandingNotes], time)
+          voice.outstandingNotes.length = 0
+        }
+        for (const synth of voice.synths || []) {
+          const envelopes = [synth.envelope, synth.modulationEnvelope].filter(
+            (envelope): envelope is CancellableVoice["envelope"] => Boolean(envelope),
+          )
+          const releases = envelopes.map((envelope) => envelope.release)
+          for (const envelope of envelopes) {
+            // A future attack may still be silent now. release() alone would leave it scheduled.
+            if (envelope.getValueAtTime(time) === 0) envelope.cancel(time)
+            envelope.release = 0.02
+          }
+          synth.triggerRelease?.(time)
+          envelopes.forEach((envelope, index) => { envelope.release = releases[index] })
+        }
+        if (!voice.synths?.size) {
+          if (voice.node.releaseAll) voice.node.releaseAll(time)
+          else if (voice.type === "Player") voice.node.stop?.(time)
+        }
+      }
+    }
+    this.droneActive = false
+  }
+
+  private scheduleNote = (voice: BuiltVoice, notes: NoteValue, duration: number, time: number, velocity: number): void => {
+    // Separate attacks and releases so PolySynth never owns an untracked future timeout.
+    this.noteQueue.schedule(time, (at) => { this.attackVoice(voice, notes, at, velocity) })
+    this.noteQueue.schedule(time + duration, (at) => {
+      if (voice.type === "Synth") voice.node.triggerRelease?.(at)
+      else voice.node.triggerRelease?.(notes, at)
+      if (voice.type === "PolySynth" && voice.outstandingNotes) {
+        for (const note of Array.isArray(notes) ? notes : [notes]) {
+          const midi = Tone.Midi(note).toMidi()
+          const index = voice.outstandingNotes.findIndex((active) => Tone.Midi(active).toMidi() === midi)
+          if (index !== -1) voice.outstandingNotes.splice(index, 1)
+        }
+      }
+    })
+  }
+
+  private attackVoice(voice: BuiltVoice, notes: NoteValue, time: number, velocity: number): void {
+    if (!voice.node.triggerAttack) return
+    voice.node.triggerAttack(notes, time, velocity)
+    if (voice.type === "PolySynth") {
+      voice.outstandingNotes ??= []
+      voice.outstandingNotes.push(...(Array.isArray(notes) ? notes : [notes]))
+    }
+  }
+
+  setPosition(fen: string, transition?: PositionTransition): void {
+    if (this.disposed) return
+    this.transition = transition
     if (fen && fen !== this.currentFen) {
-      this.previousFen = this.currentFen
+      const chess = new Chess(fen)
+      this.cancelPositionNotes()
       this.currentFen = fen
       this.positionVersion += 1
 
       // BUG-002 FIX: Create Chess instance once on position change and cache everything
-      this.cachedChess = new Chess(this.currentFen)
-      this.cachedIntensity = this.computeIntensity(this.cachedChess)
+      this.cachedChess = chess
+      this.cachedMetrics = calculatePositionMetrics(chess)
+      this.cachedIntensity = this.cachedMetrics.intensity
       this.cachedBoardPieces = this.buildBoardSnapshot(this.cachedChess)
-
-      // Cache previous piece count for capture detection
-      if (this.previousFen) {
-        try {
-          const prev = new Chess(this.previousFen)
-          this.cachedPrevPieceCount = prev.board().flat().filter(Boolean).length
-        } catch { this.cachedPrevPieceCount = 0 }
-      }
 
       // Rebuild traversal
       this.traversal = this.buildTraversalForPosition(this.cachedChess)
-
-      // BUG-005 FIX: Crossfade drone on position change
-      if (this.running && this.droneActive) {
-        this.releaseDrone()
-        // Drone will restart on next tick via updateDrone()
-      }
 
       // If running, process a tick immediately so the new position is heard without waiting
       if (this.running) {
@@ -407,20 +548,29 @@ export class SoundAgent {
   }
 
   async start(): Promise<void> {
-    if (!this.initialized) await this.init()
+    if (this.disposed) return
+    const request = ++this.playbackRequest
+    await this.init()
+    if (this.disposed || request !== this.playbackRequest) return
     if (this.running) return
-    this.running = true
+    this.clearReleaseTimers()
+    this.setRunning(true)
     this.traversal?.reset()
 
     // AUDIO FADE FIX: Fade in over 50ms to eliminate click/pop on start
     if (this.masterGain) {
       this.masterGain.gain.cancelScheduledValues(Tone.now())
       this.masterGain.gain.setValueAtTime(0, Tone.now())
-      this.masterGain.gain.rampTo(0.9, 0.05)
+      this.masterGain.gain.rampTo(this.masterVolume, 0.05)
     }
 
-    this.scheduleRepeat()
-    this.scheduleClipStopIfNeeded()
+    try {
+      this.scheduleRepeat()
+      this.scheduleClipStopIfNeeded()
+    } catch (error) {
+      this.stop()
+      throw error
+    }
   }
 
   private scheduleRepeat(): void {
@@ -497,38 +647,31 @@ export class SoundAgent {
         if (voice.panner && typeof pan === "number") voice.panner.pan.rampTo(pan, 0.01)
         const from = glide?.from || (side === "white" ? "B5" : "D4")
         const to = glide?.to || (side === "white" ? "D6" : "B3")
-        if (typeof voice.node.triggerAttackRelease === "function") {
-          voice.node.triggerAttackRelease(from, 0.08, time + 0.02, 0.7)
-          voice.node.triggerAttackRelease(to, 0.12, time + 0.11, 0.7)
-        }
+        this.scheduleNote(voice, from, 0.08, time + 0.02, 0.7)
+        this.scheduleNote(voice, to, 0.12, time + 0.11, 0.7)
       }
       // Checkmate cue sequence
       if (chess.isCheckmate() && this.cfg.events?.checkmate?.sequence && this.cfg.events.checkmate.sequence.length) {
         const seq = this.cfg.events.checkmate.sequence
         for (const ev of seq) {
           const v = this.voices[ev.voiceId]
-          if (!v || typeof v.node.triggerAttackRelease !== "function") continue
+          if (!v) continue
           const at = time + (ev.t || 0) / 1000
           const dur = (ev.d || 120) / 1000
           const vel = typeof ev.levelDb === "number" ? Math.max(0, Math.min(1, Math.pow(10, ev.levelDb / 20))) : 0.8
-          v.node.triggerAttackRelease(ev.note, dur, at, vel)
+          this.scheduleNote(v, ev.note, dur, at, vel)
         }
       }
-      // Capture cue (detect material drop using cached data)
-      if (this.cachedPrevPieceCount > 0) {
-        const currCount = this.cachedBoardPieces.length
-        if (currCount < this.cachedPrevPieceCount && this.cfg.events?.capture && this.voices[this.cfg.events.capture.voiceId]) {
-          const attacker: "white" | "black" = chess.turn() === "w" ? "black" : "white"
-          const v = this.voices[this.cfg.events.capture.voiceId]
-          const spec = this.cfg.events.capture[attacker] || {}
-          const note = spec.note || (attacker === "white" ? "C2" : "G1")
-          const dur = (spec.durationMs ?? 160) / 1000
-          const pan = spec.pan
-          if (v.panner && typeof pan === "number") v.panner.pan.rampTo(pan, 0.01)
-          if (typeof v.node.triggerAttackRelease === "function") {
-            v.node.triggerAttackRelease(note, dur, time + 0.02, 0.9)
-          }
-        }
+      // Only an actual forward capture is an event; loading or scrubbing is not a move.
+      const attacker = captureSideForTransition(this.transition)
+      if (attacker && this.cfg.events?.capture && this.voices[this.cfg.events.capture.voiceId]) {
+        const v = this.voices[this.cfg.events.capture.voiceId]
+        const spec = this.cfg.events.capture[attacker] || {}
+        const note = spec.note || (attacker === "white" ? "C2" : "G1")
+        const dur = (spec.durationMs ?? 160) / 1000
+        const pan = spec.pan
+        if (v.panner && typeof pan === "number") v.panner.pan.rampTo(pan, 0.01)
+        this.scheduleNote(v, note, dur, time + 0.02, 0.9)
       }
     }
 
@@ -579,7 +722,7 @@ export class SoundAgent {
       const useEar = aliasId && this.voices[aliasId] ? { ...ev.earcon, voiceId: aliasId } : ev.earcon
       const transpose = aliasId && this.voices[aliasId] ? undefined : ev.pitchOffset
       // SPATIAL PANNING: pass file-based pan
-      scheduleEarconAt(baseAt, useEar, ev.color, ev.pan, transpose, ev.filterTintHz, this.voices, ev.filePan)
+      scheduleEarconAt(baseAt, useEar, ev.color, ev.pan, transpose, ev.filterTintHz, this.voices, this.scheduleNote, ev.filePan)
       logThisTick.push({ piece: ev.pieceType, color: ev.color, at: baseAt })
     })
 
@@ -592,7 +735,7 @@ export class SoundAgent {
     }
 
     // Update or start drone if configured
-    this.updateDrone(chess)
+    this.updateDrone(time)
   }
 
   // Map intensity (0..1) to factor using config; defaults to previous linear 0.5..1.0
@@ -610,39 +753,6 @@ export class SoundAgent {
       y = y * y * (3 - 2 * y)
     }
     return minF + (maxF - minF) * y
-  }
-
-  // --- Intensity metric (0..1) combining captures, center control, in-check ---
-  // BUG-002 FIX: Now called once per position change instead of every tick
-  private computeIntensity(chess: Chess): number {
-    type VerboseMove = { to?: string; flags?: string; captured?: string }
-    // totalCaptures: legal capture moves for side to move
-    const moves = chess.moves({ verbose: true }) as VerboseMove[]
-    const captureCount = moves.filter((m) => (m.flags && (m.flags.includes('c') || m.flags.includes('e'))) || m.captured).length
-
-    // center control approximation: unique control of e4,d4,e5,d5 by either side
-    // BUG-002 FIX: Simplified to avoid creating 2 extra Chess instances
-    const centers = new Set(['e4', 'd4', 'e5', 'd5'])
-    let ctrl = 0
-    // Count how many center squares have pieces or are targeted by current side's moves
-    for (const m of moves) {
-      if (m.to && centers.has(m.to)) {
-        centers.delete(m.to) // count unique
-        ctrl++
-      }
-    }
-    // Also count center squares that have pieces on them
-    const board = chess.board()
-    for (const sq of ['e4', 'd4', 'e5', 'd5']) {
-      const f = sq.charCodeAt(0) - 97
-      const r = parseInt(sq[1]) - 1
-      const piece = board[7 - r]?.[f]
-      if (piece) ctrl = Math.min(4, ctrl + 0.5)
-    }
-
-    const inCheck = chess.isCheck() ? 1 : 0
-    const score = 0.4 * Math.min(1, captureCount / 20) + 0.4 * (Math.min(ctrl, 4) / 4) + 0.2 * inCheck
-    return Math.max(0, Math.min(1, score))
   }
 
   private buildTraversalForPosition(chess?: Chess): Traversal {
@@ -673,7 +783,7 @@ export class SoundAgent {
     const c = this.cfg.colors?.[color]
     const pitchShift = c?.pitchShift
     const filtHz = c?.filterTint?.frequency
-    scheduleEarconAt(time, ear, color, c?.pan, pitchShift, filtHz, this.voices)
+    scheduleEarconAt(time, ear, color, c?.pan, pitchShift, filtHz, this.voices, this.scheduleNote)
   }
 
   playVoice(voiceId: string, note: string, durationMs = 200, velocity = 0.8, color: "white" | "black" = "white"): void {
@@ -682,9 +792,40 @@ export class SoundAgent {
     const time = Tone.now() + 0.02
     const pan = this.cfg.colors?.[color]?.pan
     if (v.panner && Number.isFinite(pan)) v.panner.pan.rampTo(pan as number, 0.01)
-    if (typeof v.node.triggerAttackRelease === "function") {
-      v.node.triggerAttackRelease(note, durationMs / 1000, time, velocity)
-    }
+    this.scheduleNote(v, note, durationMs / 1000, time, velocity)
+  }
+
+  /** User-gesture entry point for the tester, including before the first Play. */
+  async auditionEarcon(pieceType: string, color: "white" | "black" = "white"): Promise<void> {
+    const earcon = this.cfg.mappings?.pieceEarcons?.[pieceType]
+    if (!earcon) return
+    const request = this.playbackRequest
+    await this.init()
+    if (this.disposed || request !== this.playbackRequest) return
+    const duration = Math.max(0, ...earcon.pattern.map((step) => {
+      const arpeggioLength = step.arpeggio ? (step.arpeggio.length - 1) * (step.stepMs ?? 40) + 40 : 0
+      return step.t + Math.max(step.d, arpeggioLength)
+    }))
+    this.openAuditionWindow(duration + 300)
+    this.playEarcon(pieceType, color)
+  }
+
+  async auditionVoice(voiceId: string, note: string, durationMs = 200, velocity = 0.8, color: "white" | "black" = "white"): Promise<void> {
+    const request = this.playbackRequest
+    await this.init()
+    if (this.disposed || request !== this.playbackRequest || !this.voices[voiceId]) return
+    this.openAuditionWindow(durationMs + 300)
+    this.playVoice(voiceId, note, durationMs, velocity, color)
+  }
+
+  private openAuditionWindow(durationMs: number): void {
+    this.clearReleaseTimers()
+    this.masterGain?.gain.rampTo(this.masterVolume, 0.01)
+    if (this.running) return
+    this.auditionTimer = setTimeout(() => {
+      this.auditionTimer = null
+      if (!this.running) this.stop()
+    }, durationMs)
   }
 
   getTraversal(): SoundAgentConfig["traversal"] {
@@ -693,21 +834,8 @@ export class SoundAgent {
     return { ...t, params: { ...(t.params || {}) } }
   }
 
-  // BUG-005 FIX: Helper to release drone cleanly
-  private releaseDrone(): void {
-    if (!this.droneActive) return
-    const d = this.cfg.scaling?.drone
-    if (!d) return
-    const voice = this.voices[d.voiceId]
-    if (voice && typeof voice.node.triggerRelease === "function") {
-      try { voice.node.triggerRelease(this.droneNote ?? undefined, Tone.now() + 0.02) } catch { /* noop */ }
-    }
-    this.droneActive = false
-    this.droneNote = null
-  }
-
   // --- Drone scaling layer ---
-  private updateDrone(chess: Chess): void {
+  private updateDrone(time: number): void {
     const d = this.cfg.scaling?.drone
     if (!d) return
     const voice = this.voices[d.voiceId]
@@ -717,23 +845,16 @@ export class SoundAgent {
     if (!this.droneActive) {
       const vel = typeof d.levelDb === "number" ? Math.max(0, Math.min(1, Math.pow(10, d.levelDb / 20))) : 0.2
       if (typeof voice.node.triggerAttack === "function") {
-        try {
-          voice.node.triggerAttack(d.baseNote, Tone.now() + 0.02, vel)
-          this.droneActive = true
-          this.droneNote = d.baseNote
-        } catch { /* noop */ }
+        this.droneActive = true
+        this.noteQueue.schedule(time + 0.02, (at) => { this.attackVoice(voice, d.baseNote, at, vel) })
       }
     }
 
     // compute material balance and map to filter frequency
-    const val: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 }
-    const board = chess.board()
-    let white = 0, black = 0
-    board.forEach((row) => row.forEach((sq) => { if (!sq) return; if (sq.color === "w") white += val[sq.type] || 0; else black += val[sq.type] || 0 }))
-    const delta = white - black
+    const delta = this.cachedMetrics?.materialBalance ?? 0
     const map = d.brightnessByMaterial
     if (map && voice.filter) {
-      const target = Math.max(map.minHz, Math.min(map.maxHz, map.minHz + map.slopeCentroidHzPerPoint * delta))
+      const target = materialBrightness(delta, map)
       voice.filter.frequency.rampTo(target, 0.2)
     }
   }

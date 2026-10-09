@@ -9,6 +9,7 @@
     "wav:server": "node scripts/wav-server.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "tsx --tsconfig tsconfig.test.json --test tests/*.test.ts tests/*.test.tsx",
     "preview": "vite preview",
     "docker:build": "docker build -t chess-sound .",
     "docker:run": "docker run -p 8080:80 chess-sound"
@@ -38,7 +39,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",
+    "@testing-library/react": "^16.3.3",
     "@types/animejs": "^3.1.13",
+    "@types/jsdom": "^21.1.7",
     "@types/node": "^24.3.3",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
@@ -50,8 +53,10 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^16.3.0",
+    "jsdom": "^26.1.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.23.15",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.39.1",
     "vite": "^7.1.2"

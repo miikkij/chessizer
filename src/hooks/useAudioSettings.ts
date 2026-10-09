@@ -3,7 +3,7 @@
  * Extracted from App.tsx to keep the main component lean.
  */
 import { useState, useEffect, useRef, useCallback } from "react";
-import { SoundAgent } from "../audio/SoundAgent";
+import type { SoundAgent } from "../audio/SoundAgent";
 import { toast } from "react-hot-toast";
 
 function readNumber(key: string, fallback: number, min?: number, max?: number): number {
@@ -11,7 +11,7 @@ function readNumber(key: string, fallback: number, min?: number, max?: number): 
         const raw = localStorage.getItem(key);
         if (raw == null) return fallback;
         const n = Number(raw);
-        if (Number.isNaN(n)) return fallback;
+        if (!Number.isFinite(n)) return fallback;
         if (typeof min === 'number' && n < min) return min;
         if (typeof max === 'number' && n > max) return max;
         return n;

@@ -15,9 +15,12 @@ interface ShortcutActions {
 export function useKeyboardShortcuts(actions: ShortcutActions) {
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Don't intercept if user is typing in an input/textarea/select
-            const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-            if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+            // Let interactive controls and dialogs keep their native keyboard behavior.
+            const target = e.target instanceof HTMLElement ? e.target : null;
+            if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey ||
+                target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="slider"]')) return;
+            if (e.key === ' ' && target?.closest('button, a, summary')) return;
+            if (e.key === ' ' && e.repeat) return;
 
             switch (e.key) {
                 case ' ': // Space = play/stop toggle

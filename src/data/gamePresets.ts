@@ -71,17 +71,18 @@ export const GAME_PRESETS: Record<string, GamePreset> = {
 1.e4 e5 2.Nf3 d6 3.d4 Bg4 4.dxe5 Bxf3 5.Qxf3 dxe5 6.Bc4 Nf6 7.Qb3 Qe7 8.Nc3 c6 9.Bg5 b5 10.Nxb5 cxb5 11.Bxb5+ Nbd7 12.O-O-O Rd8 13.Rxd7 Rxd7 14.Rd1 Qe6 15.Bxd7+ Nxd7 16.Qb8+ Nxb8 17.Rd8# 1-0`
     },
     'queen_endgame': {
-        name: "Queen vs Pawns Endgame",
-        description: "Queen endgame technique demonstration",
+        name: "Queen Mate in One",
+        description: "A legal king and queen mating position: Qg7#",
         pgn: `[Event "Endgame Study"]
 [Site "Chessizer"]
 [Date "2025.01.01"]
 [White "White"]
 [Black "Black"]
-[FEN "8/8/8/8/8/k7/1pp5/1Q6 w - - 0 1"]
+[SetUp "1"]
+[FEN "7k/8/5KQ1/8/8/8/8/8 w - - 0 1"]
 [Result "1-0"]
 
-1.Qb3+ Ka2 2.Qc2 Ka3 3.Qc3+ Ka4 4.Qc4+ Ka5 5.Qc5+ Ka6 6.Qc6+ Ka7 7.Qc7+ Ka8 8.Qxb7# 1-0`
+1.Qg7# 1-0`
     }
 };
 
