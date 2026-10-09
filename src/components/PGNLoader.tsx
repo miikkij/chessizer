@@ -75,7 +75,7 @@ export function PGNLoader({ onGameLoaded }: PGNLoaderProps) {
                 aria-describedby={`${helpId}${error ? ` ${errorId}` : ''}`}
                 aria-invalid={!!error}
                 disabled={isLoading}
-                className="min-h-28 w-full resize-y rounded-md border border-slate-300 bg-white p-3 font-mono text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className="min-h-28 w-full resize-y rounded-md border border-slate-300 bg-white p-3 font-mono text-sm text-slate-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-hidden focus:ring-2 focus:ring-blue-200"
             />
             <p id={helpId} className="text-xs text-slate-500">
                 Loads the main line, including comments and custom starting positions. Files stay in your browser.

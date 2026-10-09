@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+        with:
+          version: 12.10.1
+          node-version-file: 'false'
+          install: false
+          cache: true
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        if: runner.os == 'Linux'
+        run: pnpm lint
+      - name: Test
+        run: pnpm test
+      - name: Type check
+        run: pnpm typecheck
+      - name: Build
+        if: runner.os == 'Linux'
+        run: pnpm build
+
+  python:
+    name: WAV semantics (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: soundAgentsv2/requirements*.txt
+      - name: Install WAV dependencies
+        run: python -m pip install -r soundAgentsv2/requirements-dev.txt
+      - name: Check dependency compatibility
+        run: python -m pip check
+      - name: Test WAV semantics without a server
+        working-directory: soundAgentsv2
+        run: python -W error -m unittest -v test_semantics
+
+  docker:
+    name: Docker frontend smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and serve the production frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --tag chessizer:ci .
+          docker run --detach --name chessizer-ci --publish 127.0.0.1:8080:80 chessizer:ci
+          trap 'docker logs chessizer-ci; docker rm --force chessizer-ci' EXIT
+          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 5 \
+            http://127.0.0.1:8080/ --output "$RUNNER_TEMP/chessizer-index.html"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from urllib.request import urlopen
+
+          base = "http://127.0.0.1:8080"
+          with urlopen(base, timeout=5) as response:
+              assert b'id="root"' in response.read(), "Application entry point is missing"
+          configs = sorted(Path("public/configs").glob("*.json"))
+          assert configs, "No public configuration files were found"
+          for path in configs + sorted(Path("public/schemas").glob("*.json")):
+              with urlopen(f"{base}/{path.relative_to('public').as_posix()}", timeout=5) as response:
+                  served = json.load(response)
+              assert served == json.loads(path.read_text(encoding="utf-8")), path
+              print(f"Verified {path}")
+          for filename in ("LICENSE", "NOTICE.md", "LICENSES/MIT-original.txt"):
+              with urlopen(f"{base}/{filename}", timeout=5) as response:
+                  served = response.read()
+              assert served == Path(filename).read_bytes(), f"License notice differs: {filename}"
+              print(f"Verified {filename}")
+          with urlopen(f"{base}/THIRD_PARTY_LICENSES.md", timeout=5) as response:
+              report = response.read().decode("utf-8")
+          assert "@lichess-org/chessground" in report, "Chessground is missing from the generated license report"
+          print("Verified THIRD_PARTY_LICENSES.md includes Chessground")
+          PY

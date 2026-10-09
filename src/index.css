@@ -1,15 +1,20 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-:root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #25312e; background: #f4f3ee; font-synthesis: none; }
-body { margin: 0; min-width: 320px; }
-button, input, select, textarea { font: inherit; }
-button, summary, select { cursor: pointer; }
-button:disabled { cursor: default; opacity: .35; }
-:focus-visible { outline: 3px solid #568875; outline-offset: 3px; }
-input[type="range"] { width: 100%; accent-color: #30664f; cursor: pointer; }
-label { color: #4d5952; font-size: .85rem; }
+/* Keep the existing control borders when upgrading Tailwind's preflight. */
+@layer base {
+  *, ::before, ::after, ::backdrop, ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+  :root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #25312e; background: #f4f3ee; font-synthesis: none; }
+  body { margin: 0; min-width: 320px; }
+  button, input, select, textarea { font: inherit; }
+  button, summary, select { cursor: pointer; }
+  button:disabled { cursor: default; opacity: .35; }
+  :focus-visible { outline: 3px solid #568875; outline-offset: 3px; }
+  input[type="range"] { width: 100%; accent-color: #30664f; cursor: pointer; }
+  label { color: #4d5952; font-size: .85rem; }
+}
+
 .setting-value { float: right; font-variant-numeric: tabular-nums; }
 .app-header { max-width: 1240px; margin: 0 auto; padding: 26px 28px; display: flex; align-items: center; gap: 13px; }
 .brand-mark { width: 43px; height: 43px; display: grid; place-items: center; background: #294d3e; color: #fff; border-radius: 12px; }
@@ -33,6 +38,10 @@ label { color: #4d5952; font-size: .85rem; }
 .chessizer-board.cg-wrap { width: 100%; aspect-ratio: 1; }
 .chessizer-board cg-board { border-radius: 4px; overflow: hidden; }
 .chessizer-board coords { font-weight: 600; }
+.chessizer-board coords.files { left: 0; bottom: 0; text-transform: lowercase; }
+.chessizer-board coords.files coord { flex: 1 1 0; text-align: right; padding-right: 3px; }
+.chessizer-board coords.ranks { top: 0; left: 3px; }
+.chessizer-board coords.ranks coord { flex: 1 1 0; transform: none; padding-top: 2px; }
 .position-status { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 17px 0; font-size: .85rem; }
 .position-status.is-check { color: #9b402f; font-weight: 600; }
 .side-dot { display: inline-block; width: 11px; height: 11px; border: 1px solid #92998f; border-radius: 50%; }

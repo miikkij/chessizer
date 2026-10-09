@@ -107,7 +107,7 @@ class EarconConfig(BaseModel):
 
 class PulseGridConfig(BaseModel):
     earcons: Dict[str, EarconConfig]
-    register: Dict[str, str] = Field(default={"white": "C5", "black": "C3"})
+    register_: Dict[str, str] = Field(default={"white": "C5", "black": "C3"}, alias="register")
     pan: Dict[str, float] = Field(default={"white": -0.3, "black": 0.3})
     gainDb: Dict[str, float] = Field(default={"white": -10, "black": -10})
 
@@ -624,7 +624,7 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
                     continue
 
                 earcon = config.pulseGrid.earcons[piece_name]
-                base_hz = note_to_hz(config.pulseGrid.register[color])
+                base_hz = note_to_hz(config.pulseGrid.register_[color])
                 pan = config.pulseGrid.pan[color]
                 gain_db = config.pulseGrid.gainDb[color]
                 halo_value = halo[y, x]
@@ -642,7 +642,7 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
                         step_pos = pos + int(step.t / 1000 * SR)
                         hz = semitone_to_freq(base_hz, step.semitone)
                         wave = osc(earcon.osc, hz, step.durMs, brightness=brightness)
-                        env = env_adsr(step.durMs, **earcon.env.dict())
+                        env = env_adsr(step.durMs, **earcon.env.model_dump())
                         final_wave = wave * env * db_to_lin(gain_db)
                         place(stereo, step_pos, pan_stereo(final_wave, pan))
 
@@ -652,7 +652,7 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
                     for semitone in notes:
                         hz = semitone_to_freq(base_hz, semitone)
                         wave = osc(earcon.osc, hz, earcon.durMs, brightness=brightness)
-                        env = env_adsr(earcon.durMs, **earcon.env.dict())
+                        env = env_adsr(earcon.durMs, **earcon.env.model_dump())
                         final_wave = wave * env * db_to_lin(gain_db) / len(notes)
                         place(stereo, pos, pan_stereo(final_wave, pan))
 
@@ -663,7 +663,7 @@ def generate_chess_wav(request: GenerateRequest) -> bytes:
                         hz = semitone_to_freq(base_hz, semitone)
                         step_dur = earcon.stepMs * 1.5  # Overlap for smoother arp
                         wave = osc(earcon.osc, hz, step_dur, brightness=brightness)
-                        env = env_adsr(step_dur, **earcon.env.dict())
+                        env = env_adsr(step_dur, **earcon.env.model_dump())
                         final_wave = wave * env * db_to_lin(gain_db)
                         place(stereo, step_pos, pan_stereo(final_wave, pan))
 

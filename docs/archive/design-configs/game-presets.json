@@ -1,0 +1,87 @@
+{
+  "version": "2.0",
+  "generatedAt": "2025-09-13T00:00:00.000Z",
+  "description": "Archived design proposals reconstructed from a malformed historical file. These presets and generators are not loaded by the current app.",
+  "presets": [
+    {
+      "id": "start_setting",
+      "name": "Starting position",
+      "type": "fixed",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "boardString": "2400220023002500260023002200240021002100210021002100210021002100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100110011001100110011001100110014001200130015001600130012001400",
+      "pgn": "[Event \"Starting Position\"]\n[Result \"*\"]\n\n*",
+      "note": "The compact string is a derived board snapshot; FEN carries side to move, castling rights and en passant state."
+    },
+    {
+      "id": "random_game",
+      "name": "Random game proposal",
+      "type": "generator",
+      "generator": {
+        "mode": "random_moves",
+        "minMoves": 10,
+        "maxMoves": 30
+      },
+      "note": "Historical random playout proposal. Not implemented."
+    },
+    {
+      "id": "random_configuration",
+      "name": "Random realistic configuration proposal",
+      "type": "generator",
+      "generator": {
+        "mode": "random_realistic",
+        "minPliesFromStart": 8,
+        "maxPliesFromStart": 60,
+        "enforceLegal": true,
+        "avoidThreefold": true,
+        "allowDownMaterial": true
+      },
+      "note": "Historical snapshot generator proposal. Not implemented."
+    },
+    {
+      "id": "endgame_configurations",
+      "name": "Near-mate endgame generator proposal",
+      "type": "generator",
+      "generator": {
+        "mode": "endgame_near_mate",
+        "mateInMax": 3,
+        "endgameFamilies": [
+          "KQ_K",
+          "KR_K",
+          "KBN_K",
+          "KQ_KP",
+          "KRP_KP"
+        ],
+        "engine": {
+          "name": "stockfish.wasm",
+          "maxNodes": 200000,
+          "maxTimeMs": 1500
+        }
+      },
+      "note": "Historical engine-assisted generator proposal. No engine is bundled or run."
+    },
+    {
+      "id": "endgame_kq_vs_k",
+      "name": "King and queen versus king",
+      "type": "fixed",
+      "fen": "7k/8/5KQ1/8/8/8/8/8 w - - 0 1",
+      "pgn": "[Event \"Queen mate in one\"]\n[Site \"Chessizer\"]\n[SetUp \"1\"]\n[FEN \"7k/8/5KQ1/8/8/8/8/8 w - - 0 1\"]\n[Result \"1-0\"]\n\n1.Qg7# 1-0",
+      "note": "Repaired legal sample with both kings and a verified mate in one."
+    },
+    {
+      "id": "endgame_kr_vs_k",
+      "name": "King and rook versus king",
+      "type": "fixed",
+      "fen": "7k/8/5K2/8/8/8/8/6R1 w - - 0 1",
+      "pgn": "[Event \"Rook endgame example\"]\n[Site \"Chessizer\"]\n[SetUp \"1\"]\n[FEN \"7k/8/5K2/8/8/8/8/6R1 w - - 0 1\"]\n[Result \"*\"]\n\n*",
+      "note": "Repaired legal setup example; no mate-distance claim."
+    },
+    {
+      "id": "middlegame_sample",
+      "name": "Middlegame example",
+      "type": "fixed",
+      "fen": "rnbqkb1r/pppp1ppp/5n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "pgn": "[Event \"Middlegame example\"]\n[Site \"Chessizer\"]\n[SetUp \"1\"]\n[FEN \"rnbqkb1r/pppp1ppp/5n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4\"]\n[Result \"*\"]\n\n*",
+      "note": "Historical setup example with explicit FEN metadata."
+    }
+  ]
+}

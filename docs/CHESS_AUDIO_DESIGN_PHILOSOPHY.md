@@ -1,5 +1,7 @@
 # Chess-to-Audio Design Philosophy
 
+> Design reference: these are musical goals and proposed mappings, not a checklist of implemented controls. See the [project README](../README.md) and [WAV service guide](../soundAgentsv2/README.md) for current behavior.
+
 ## Musical Mapping Principles
 
 ### 1. Chess Piece Sonic Archetypes

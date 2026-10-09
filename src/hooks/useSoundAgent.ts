@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Ajv from 'ajv';
-import { SoundAgent, type SoundAgentConfig } from '../audio/SoundAgent';
+import { SoundAgent } from '../audio/SoundAgent';
 import type { PositionFrame, PositionTransition } from '../chess/game';
+import { assertSoundAgentConfig, fetchSoundAgentConfig } from '../config/soundAgentConfig';
 
 interface PlaybackSettings {
     bpm: number;
@@ -9,24 +9,6 @@ interface PlaybackSettings {
     tickMs: number;
     masterVolume: number;
 }
-
-const validateConfig = new Ajv({ allErrors: true }).compile({
-    type: 'object',
-    required: ['version', 'name', 'voices', 'mappings', 'traversal'],
-    properties: {
-        version: { type: 'string' },
-        name: { type: 'string' },
-        voices: { type: 'object', minProperties: 1 },
-        mappings: {
-            type: 'object', required: ['pieceEarcons'],
-            properties: { pieceEarcons: { type: 'object', minProperties: 1 } },
-        },
-        traversal: {
-            type: 'object', required: ['strategy'],
-            properties: { strategy: { type: 'string' }, tickDurationMs: { type: 'number', minimum: 1 } },
-        },
-    },
-});
 
 export function useSoundAgent(frame: PositionFrame, transition: PositionTransition) {
     const [agent, setAgent] = useState<SoundAgent | null>(null);
@@ -39,11 +21,11 @@ export function useSoundAgent(frame: PositionFrame, transition: PositionTransiti
     const generationRef = useRef(0);
 
     const replaceAgent = useCallback((config: unknown) => {
-        if (!validateConfig(config)) throw new Error('Invalid sound configuration. Check voices, mappings and traversal.');
+        const validated = assertSoundAgentConfig(config);
+        const next = new SoundAgent(structuredClone(validated));
         generationRef.current += 1;
         agentRef.current?.setPlaybackListener(null);
         agentRef.current?.dispose();
-        const next = new SoundAgent(structuredClone(config) as SoundAgentConfig);
         next.setPlaybackListener((playing) => {
             playingRef.current = playing;
             setIsPlaying(playing);
@@ -62,12 +44,10 @@ export function useSoundAgent(frame: PositionFrame, transition: PositionTransiti
         const generation = generationRef.current;
         async function load() {
             try {
-                const response = await fetch('/configs/sound-agent-demo.json', { signal: controller.signal });
-                if (!response.ok) throw new Error('Could not load sound configuration. Reload to try again.');
-                const config: unknown = await response.json();
+                const { config } = await fetchSoundAgentConfig(controller.signal);
                 if (!controller.signal.aborted && generation === generationRef.current) replaceAgent(config);
             } catch (cause) {
-                if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not prepare audio.');
+                if (!controller.signal.aborted && generation === generationRef.current) setError(cause instanceof Error ? cause.message : 'Could not prepare audio.');
             }
         }
         void load();

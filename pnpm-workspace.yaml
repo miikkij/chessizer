@@ -1,6 +1,3 @@
-onlyBuiltDependencies:
-  - '@tailwindcss/oxide'
-  - core-js
-  - core-js-pure
-  - es5-ext
-  - esbuild
+allowBuilds:
+  # tsx needs esbuild's platform binary for the TypeScript test runner.
+  esbuild@0.28.2: true

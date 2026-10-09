@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Headphones, Pause, Play, RotateCw, Settings2 } from 'lucide-react';
 import { Toaster, toast } from 'react-hot-toast';
 import { Button } from './ui/button';
@@ -24,7 +24,7 @@ export default function App() {
     const { toggle, replaceAgent } = audio;
     const settings = useAudioSettings(audio.agent);
     const playbackSettingsRef = useRef(settings);
-    playbackSettingsRef.current = settings;
+    useLayoutEffect(() => { playbackSettingsRef.current = settings; }, [settings]);
     const [gamePreset, setGamePreset] = useState('immortal_game');
     const [advancedOpen, setAdvancedOpen] = useState(false);
     const [orientation, setOrientation] = useState<'white' | 'black'>('white');
@@ -61,13 +61,8 @@ export default function App() {
     };
 
     const handleConfig = useCallback((config: unknown, path: string) => {
-        if (path !== '/configs/sound-agent-demo.json') return;
-        try {
-            replaceAgent(config);
-            toast.success('Sound configuration applied. Press Listen to play.');
-        } catch (cause) {
-            toast.error(cause instanceof Error ? cause.message : 'Invalid sound configuration.');
-        }
+        if (path !== '/configs/sound-agent-demo.json') throw new Error('This configuration is not supported by the audio engine.');
+        replaceAgent(config);
     }, [replaceAgent]);
 
     return <div className="app-shell">

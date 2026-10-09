@@ -1,8 +1,10 @@
 """Regression tests for move-aware WAV rendering; no HTTP server required."""
 
 import io
+import json
 import unittest
 import wave
+from pathlib import Path
 
 import chess
 import numpy as np
@@ -49,6 +51,17 @@ def render(current_fen, previous_fen=None, config=None):
 
 
 class CaptureSemanticsTests(unittest.TestCase):
+    def test_shipped_config_renders_and_preserves_register_json_contract(self):
+        config = json.loads(Path(__file__).with_name("sample_config.json").read_text())
+        config["audio"]["lengthMs"] = 1000
+        request = GenerateRequest(fen=position_after("e4", "e5", "Nf3").fen(), config=config)
+        self.assertEqual(request.config.pulseGrid.register_["white"], config["pulseGrid"]["register"]["white"])
+        serialized = request.config.pulseGrid.model_dump(by_alias=True)
+        self.assertIn("register", serialized)
+        self.assertNotIn("register_", serialized)
+        samples = render(request.fen, config=config)
+        self.assertTrue(np.any(samples))
+
     def test_capture_opportunity_is_not_a_capture_event(self):
         board = position_after("e4", "d5")
         self.assertTrue(any(board.is_capture(move) for move in board.legal_moves))

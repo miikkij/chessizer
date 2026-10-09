@@ -1,0 +1,13 @@
+.git
+.github
+.claude
+node_modules
+dist
+docs
+examples
+soundAgentsv2
+tests
+*.log
+.env
+.env.*
+!.env.example

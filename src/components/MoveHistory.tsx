@@ -15,7 +15,7 @@ export default function MoveHistory({ game, positionIndex, onSelect }: MoveHisto
         const button = currentRef.current;
         const list = listRef.current;
         if (!button || !list) return;
-        const top = button.offsetTop - list.offsetTop;
+        const top = button.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
         if (top < list.scrollTop || top + button.offsetHeight > list.scrollTop + list.clientHeight) {
             list.scrollTop = Math.max(0, top - list.clientHeight / 2);
         }

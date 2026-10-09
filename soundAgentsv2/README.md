@@ -1,243 +1,134 @@
-# Chess Sound WAV Generator Microservice
+# Optional WAV generator
 
-A Python microservice that generates stereo WAV soundscapes from chess positions using the layered audio approach described in `soundAGENTS_wavev2.md`.
+This Python service renders one chess position into a WAV clip. The main application uses Tone.js in the browser; this service is needed only for its WAV panel. This page describes the current [implementation](main.py). The older [WAV design](../docs/archive/wav-design/soundAGENTS_wavev2.md) includes features that are not implemented.
 
-## Overview
+## Setup and startup
 
-This microservice converts chess positions (FEN notation) into rich audio soundscapes with 5 distinct layers:
+Python **3.12 or newer** is required by NumPy. Use the repository's Node.js and pnpm versions from the [main README](../README.md) when starting through the shared launcher.
 
-1. **Groove Layer** - Euclidean rhythm patterns providing rhythmic foundation
-2. **Pulse Grid** - Individual piece sounds arranged spatially across the board
-3. **Halo Field** - Spatial audio effects representing piece influence/threats
-4. **Event Cues** - Audio icons for captures, checks, and special moves  
-5. **Ambient Bed** - Background drones reflecting material balance and position
+From the repository root, create a local environment and install dependencies.
 
-## Quick Start
+Windows PowerShell:
 
-### Prerequisites
-
-- Python 3.8 or higher
-- pip package manager
-
-### Installation & Running
-
-#### Windows
-```bash
-# Navigate to the soundAgentsv2 directory
-cd soundAgentsv2
-
-# Run the startup script
-start.bat
+```powershell
+py -3.13 -m venv soundAgentsv2/.venv
+soundAgentsv2/.venv/Scripts/python.exe -m pip install -r soundAgentsv2/requirements.txt
+pnpm wav:server
 ```
 
-#### Linux/macOS
-```bash
-# Navigate to the soundAgentsv2 directory
-cd soundAgentsv2
+Linux/macOS, with Python 3.12 or a newer installed version:
 
-# Make script executable and run
-chmod +x start.sh
-./start.sh
+```sh
+python3.12 -m venv soundAgentsv2/.venv
+soundAgentsv2/.venv/bin/python -m pip install -r soundAgentsv2/requirements.txt
+pnpm wav:server
 ```
 
-#### Manual Setup
-```bash
-# Create virtual environment
-python -m venv venv
+The launcher prefers `soundAgentsv2/.venv`, falls back to the legacy `venv` directory, and rejects Python versions below 3.12. It does not create or replace environments. [start.bat](start.bat) and [start.sh](start.sh) call the same launcher from any working directory.
 
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
+`pnpm dev` runs the frontend and this service together. `pnpm dev:frontend` runs only the browser application. With an installed Python environment, the service can also be started directly with that environment's Python and `soundAgentsv2/main.py`.
 
-# Install dependencies
-pip install -r requirements.txt
+The API is available at **http://localhost:8001**. The current Python entry point binds to `0.0.0.0:8001`; it has no authentication. CORS allows the localhost development origins listed in [main.py](main.py).
 
-# Start the microservice
-python main.py
-```
+## API
 
-The service will start on `http://localhost:8001`
+| Method and path | Result |
+| --- | --- |
+| `GET /` | Brief HTML endpoint help |
+| `GET /health` | Service health JSON |
+| `GET /docs` | Interactive API documentation |
+| `GET /openapi.json` | Generated request schema |
+| `POST /generate` | Binary WAV, `Content-Type: audio/wav`, attachment filename |
 
-## API Usage
+`POST /generate` accepts JSON with:
 
-### Endpoints
+- `fen`: a legal chess position in FEN notation.
+- `config`: a WAV configuration; start with [sample_config.json](sample_config.json).
+- `previousFen`: optional previous position. A capture cue is produced only when one legal capture from this position reaches the exact current position, including its turn and move counters. Omit it for loading, seeking or moving backward through history.
 
-- **GET /** - API documentation page
-- **GET /health** - Health check endpoint
-- **GET /docs** - Interactive OpenAPI documentation  
-- **POST /generate** - Generate WAV from chess position
+The WAV configuration is separate from the browser's Tone.js configuration. They are not interchangeable.
 
-### Generate WAV Endpoint
+Example Python request, run from the repository root after installing [requirements-dev.txt](requirements-dev.txt):
 
-**POST /generate**
+```python
+import json
+from pathlib import Path
+import requests
 
-Accepts a JSON payload with:
-- `fen` (string) - Chess position in FEN notation
-- `config` (object) - Sound configuration (see Configuration section)
-- `previousFen` (optional string) - Previous position for change detection
-
-Returns a binary WAV file.
-
-#### Example Request
-
-```bash
-curl -X POST "http://localhost:8001/generate" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-       "config": { ... }
-     }' \
-     --output chess_sound.wav
-```
-
-## Configuration
-
-The sound configuration is a comprehensive JSON object that controls all aspects of audio generation. See `sample_config.json` for a complete example.
-
-### Key Configuration Sections
-
-#### Audio Settings
-```json
-{
-  "audio": {
-    "sampleRate": 48000,    // Sample rate in Hz
-    "bitDepth": 16,         // Bit depth (16 or 24)
-    "channels": 2,          // Stereo channels
-    "lengthMs": 4000,       // Clip length in milliseconds
-    "headroomDb": 6         // Headroom for limiting
-  }
-}
-```
-
-#### Groove Layer
-```json
-{
-  "groove": {
-    "tempoBpm": 120,        // Tempo in beats per minute
-    "bars": 2,              // Number of bars in pattern
-    "kit": {                // Drum kit definitions
-      "kick": { "type": "sineClick", "toneHz": 60, "decayMs": 180, "gainDb": -6 },
-      "snare": { "type": "noiseSnap", "toneHz": 180, "decayMs": 140, "gainDb": -9 },
-      "hat": { "type": "noiseTick", "toneHz": 8000, "decayMs": 30, "gainDb": -12 }
+config = json.loads(Path("soundAgentsv2/sample_config.json").read_text())
+response = requests.post(
+    "http://localhost:8001/generate",
+    json={
+        "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "config": config,
     },
-    "tracks": [             // Euclidean rhythm patterns
-      { "voice": "kick", "steps": 16, "pulses": 4, "rotate": 0 }
-    ]
-  }
-}
+    timeout=30,
+)
+response.raise_for_status()
+Path("chess_sound.wav").write_bytes(response.content)
 ```
 
-#### Pulse Grid (Piece Sounds)
-```json
-{
-  "pulseGrid": {
-    "earcons": {            // Sound definitions for each piece type
-      "pawn": {
-        "osc": "triangle",  // Oscillator type
-        "env": { "a": 5, "d": 60, "s": 0.2, "r": 80 }, // ADSR envelope
-        "pattern": [        // Sequence of notes
-          { "t": 0, "semitone": 0, "durMs": 120 },
-          { "t": 140, "semitone": 2, "durMs": 100 }
-        ]
-      }
-    },
-    "register": { "white": "C5", "black": "C3" },  // Base notes for colors
-    "pan": { "white": -0.3, "black": 0.3 },        // Stereo positioning
-    "gainDb": { "white": -10, "black": -10 }       // Volume levels
-  }
-}
+Invalid or illegal FEN returns **400**. Request-model validation errors return **422**. Other rendering failures return **500**. Pydantic validates the types, required fields and some numeric ranges, but string choices and all cross-field constraints are not fully validated. Unknown fields are ignored. A successfully parsed configuration does not imply that every field affects the sound.
+
+## What the renderer implements
+
+The clip combines repeating percussion, piece motifs, capture/check cues and an ambient chord. A blurred board-occupancy field changes the brightness of piece motifs; it is not a separate audio layer or a chess attack map. Noise and onset jitter make repeated renders nondeterministic.
+
+| Configuration | Current behavior |
+| --- | --- |
+| `audio.lengthMs` | Clip length, 1,000–10,000 ms. Sounds beyond the clip boundary are cut off. |
+| `audio.bitDepth` | Use 16 or 24 for PCM encoding. The model does not restrict the value; the writer treats every non-16 value as 24-bit. |
+| `audio.headroomDb` | Attenuates the mix, with an additional peak cap of 0.9. |
+| `audio.sampleRate`, `audio.channels` | Accepted but ignored. Output is always **48 kHz stereo**. |
+| `groove` | Tempo, bars, kit voices and Euclidean track patterns are used. Each bar has four beats. Missing kit names are skipped. Kit `toneHz` affects tonal voices, not noise voices. |
+| `limits.maxConcurrentVoices` | Caps selected occupied cells in each tick. The scanner visits at most four cells per tick; this is not a global limit on overlapping notes. |
+| `limits.onsetOffsetMs` | Two values define the random onset-delay range in milliseconds. |
+| `pulseGrid` | Uses side-specific `register`, `pan` and `gainDb`, and piece `earcons`. Missing piece earcons are skipped. |
+| Earcon shapes | Uses the first nonempty shape in this order: `pattern`, `chord`/`dyad`, `arp` with nonzero `stepMs`. Pattern steps carry their own timing. Chords/dyads use `durMs`; arpeggio notes last `stepMs * 1.5`. |
+| Earcon fields | `osc` and `env` are used. `durMs` is required even for patterns/arpeggios, where it does not determine their length. Oscillators are `sine`, `triangle`, `square`, `saw`, `noise`; unknown names fall back to sine. |
+| `halo.kernel` | Blurs occupied cells, regardless of piece side or attacks, to set motif brightness. |
+| `halo.mode`, `halo.brightnessHz`, `halo.width` | Accepted but ignored. |
+| `traversal.tickDurationMs` | Time between four-cell groups. A fixed center-out traversal visits all 64 cells in 16 ticks and repeats. Short clips may end before all pieces are visited. |
+| `traversal.strategy`, `traversal.params` | Accepted but ignored; they do not change the traversal. |
+| `events.capture` | Only `type: "click"` renders. Uses verified capture side, duration, gain and optional side pan. `leadMs` is a nonnegative delay from clip start, not an advance before the move. |
+| `events.check` | Only `type: "glide"` renders. Uses the side whose king is in check to select frequencies and optional pan. Starts at **1.5 seconds**, so clips ending by then contain no check cue. Uses duration/gain; `leadMs` is ignored. |
+| `ambient.root`, `ambient.gainDb` | Set the root and volume of a centered sine chord. White material advantage greater than one point gives a major triad; black advantage greater than one gives a minor triad; otherwise a diminished seventh is used. |
+| `ambient.mode`, `ambient.qualityByMaterial`, `ambient.brightnessHz` | Accepted but ignored; the chord rule above is fixed. |
+| `changeRules` | Accepted but ignored. |
+| `diagnostics.logSchedule` | Logs position metrics once per render, not individual note scheduling. |
+| `diagnostics.writeStemWavs` | Accepted but ignored. No stem files are written. |
+| `version`, `name` | Metadata; neither selects rendering behavior. |
+
+The implementation does not include Stockfish analysis, mate-threat scoring, batch rendering, reverb, caching, streaming generation or MIDI output. Browser audio and WAV rendering use different synthesis paths and need not sound identical.
+
+## Verification
+
+The semantic regression suite needs no running server:
+
+```powershell
+soundAgentsv2/.venv/Scripts/python.exe -W error -m unittest discover -s soundAgentsv2 -p test_semantics.py -v
 ```
 
-## Testing
+On Linux/macOS, use `soundAgentsv2/.venv/bin/python` for the same command.
 
-Test the microservice with the included test script:
+For the optional HTTP generation utility, install its requests dependency and start the service first:
 
-```bash
-# Basic test - generates WAV files for different positions
-python test_service.py
-
-# Extended test - includes configuration variations
-python test_service.py --extended
+```powershell
+soundAgentsv2/.venv/Scripts/python.exe -m pip install -r soundAgentsv2/requirements-dev.txt
+soundAgentsv2/.venv/Scripts/python.exe -X utf8 soundAgentsv2/test_service.py --extended
 ```
 
-This will:
-1. Check if the service is running
-2. Generate WAV files for various chess positions
-3. Verify the generated files are valid WAV format
-4. Test configuration variations (if --extended flag is used)
+[test_service.py](test_service.py) prints endpoint results and writes `test_*.wav` files into the current working directory. It is a manual diagnostic utility, not a pass/fail regression runner; inspect its output for individual failures.
 
-## Integration with Chess App
+A preserved six-second recording is available in [examples/audio](../examples/audio/README.md). Its generating position and configuration are not recorded, so it is not a reference output for the current renderer.
 
-The microservice integrates with the main React chess application through the `WavPlayerControls` component:
+## Troubleshooting
 
-1. **Automatic Position Sync** - Uses the same FEN position as the Tone.js engine
-2. **Real-time Configuration** - UI controls to adjust tempo, length, voices, etc.
-3. **Error Handling** - Clear error messages for common issues (service down, invalid FEN)
-4. **Audio Playback** - Generated WAV files play directly in the browser
+- Service unavailable: run `pnpm wav:server` from the repository root and check `/health`.
+- Environment error: install Python 3.12 or newer and create `.venv` using the commands above. An existing Python 3.10 `venv` is insufficient.
+- HTTP 422: compare the response details with `sample_config.json`; every earcon requires `durMs`.
+- No capture cue: supply the exact legal predecessor in `previousFen`. An available capture in the current position is not a completed capture.
+- No check cue: use a clip longer than 1.5 seconds and `events.check.type: "glide"`.
+- An option has no effect: consult the implementation table before using an archived design example.
 
-### Troubleshooting Integration
-
-**"Microservice not available"**
-- Ensure Python service is running: `cd soundAgentsv2 && python main.py`
-- Check the URL in the UI (default: `http://localhost:8001`)
-- Verify no firewall is blocking port 8001
-
-**"Invalid request" errors**
-- Check that the current chess position is valid
-- Verify the sound configuration is complete
-
-## Architecture
-
-### Sound Generation Pipeline
-
-1. **FEN Parsing** - Convert chess notation to 8x8 board matrix
-2. **Position Analysis** - Calculate metrics (material balance, center control, threats)
-3. **Layer Generation**:
-   - Groove: Euclidean rhythm patterns
-   - Pulse Grid: Piece-specific earcons with spatial placement
-   - Halo: Convolution-based influence field
-   - Events: Capture and check audio cues
-   - Ambient: Material-based harmonic background
-4. **Audio Mixing** - Combine layers with proper gain staging
-5. **WAV Export** - Convert to binary audio format
-
-### Performance
-
-- **Generation Time**: ~1-3 seconds for typical 4-second clips
-- **Memory Usage**: ~50MB during generation
-- **File Size**: ~400KB for 4-second stereo WAV at 48kHz/16-bit
-
-## Files
-
-- `main.py` - FastAPI microservice implementation
-- `requirements.txt` - Python dependencies
-- `sample_config.json` - Example sound configuration
-- `test_service.py` - Test script for verification
-- `start.bat` / `start.sh` - Startup scripts
-- `soundAGENTS_wavev2.md` - Complete specification document
-
-## Dependencies
-
-- **FastAPI** - Web framework
-- **python-chess** - Chess position analysis
-- **numpy** - Audio processing and synthesis
-- **pydantic** - Configuration validation
-- **uvicorn** - ASGI server
-
-## Future Enhancements
-
-- **Stockfish Integration** - AI-powered position evaluation
-- **Batch Processing** - Generate WAVs for entire games
-- **Custom Tunings** - Microtonal and alternative scales
-- **Convolution Reverb** - Realistic acoustic spaces
-- **MIDI Export** - Generate MIDI alongside WAV
-
-## Support
-
-For issues or questions:
-1. Check the health endpoint: `http://localhost:8001/health`
-2. Review the interactive docs: `http://localhost:8001/docs` 
-3. Run the test script to verify functionality
-4. Check console output for detailed error messages
+Historical documents are preserved under [docs/archive/wav-design](../docs/archive/wav-design/). They describe design intent and earlier behavior, not the current API contract.

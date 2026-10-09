@@ -16,6 +16,7 @@ dist-ssr
 *.local
 
 # Editor directories and files
+.claude/*.local.json
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -187,3 +188,4 @@ cython_debug/
 *.wav
 !example.wav
 !demo.wav
+!examples/audio/*.wav

@@ -26,7 +26,7 @@ export function WavPlayerControls({ currentFen, previousFen, transition, isEnabl
         toast.success('WAV sound generated and playing');
     }, []);
 
-    const wavPlayer = useWavPlayer({
+    const { audioRef, onAudioEnded, ...wavPlayer } = useWavPlayer({
         currentFen,
         previousFen,
         transition,
@@ -72,8 +72,8 @@ export function WavPlayerControls({ currentFen, previousFen, transition, isEnabl
     };
 
     return (
-        <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-            <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 p-2 bg-gray-50 rounded-lg">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
                 <Button
                     variant="outline"
                     size="sm"
@@ -124,7 +124,7 @@ export function WavPlayerControls({ currentFen, previousFen, transition, isEnabl
 
                 <Dialog open={showConfig} onOpenChange={setShowConfig}>
                     <DialogTrigger asChild>
-                        <Button variant="outline" size="sm">
+                        <Button variant="outline" size="sm" aria-label="WAV sound configuration">
                             <Settings className="h-4 w-4" />
                         </Button>
                     </DialogTrigger>
@@ -151,8 +151,8 @@ export function WavPlayerControls({ currentFen, previousFen, transition, isEnabl
 
             {/* Hidden audio element for playback */}
             <audio
-                ref={wavPlayer.audioRef}
-                onEnded={wavPlayer.onAudioEnded}
+                ref={audioRef}
+                onEnded={onAudioEnded}
                 className="hidden"
             />
         </div>
@@ -193,7 +193,7 @@ function WavConfigEditor({
                     type="text"
                     value={microserviceUrl}
                     onChange={(e) => onMicroserviceUrlChange(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md placeholder:text-gray-400"
                     placeholder="http://localhost:8001"
                     title="Python microservice URL"
                     aria-label="Microservice URL"
@@ -214,7 +214,7 @@ function WavConfigEditor({
                             type="number"
                             value={config.audio.lengthMs}
                             onChange={(e) => updateConfig(['audio', 'lengthMs'], Number(e.target.value))}
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                            className="w-full px-2 py-1 border border-gray-300 rounded-sm text-sm"
                             min="1000"
                             max="10000"
                             step="500"
@@ -227,7 +227,7 @@ function WavConfigEditor({
                             id="sample-rate"
                             value={config.audio.sampleRate}
                             onChange={(e) => updateConfig(['audio', 'sampleRate'], Number(e.target.value))}
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                            className="w-full px-2 py-1 border border-gray-300 rounded-sm text-sm"
                             title="Audio sample rate"
                         >
                             <option value={22050}>22.05 kHz</option>
@@ -249,7 +249,7 @@ function WavConfigEditor({
                             type="number"
                             value={config.groove.tempoBpm}
                             onChange={(e) => updateConfig(['groove', 'tempoBpm'], Number(e.target.value))}
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                            className="w-full px-2 py-1 border border-gray-300 rounded-sm text-sm"
                             min="60"
                             max="200"
                             title="Tempo in beats per minute"
@@ -262,7 +262,7 @@ function WavConfigEditor({
                             type="number"
                             value={config.groove.bars}
                             onChange={(e) => updateConfig(['groove', 'bars'], Number(e.target.value))}
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                            className="w-full px-2 py-1 border border-gray-300 rounded-sm text-sm"
                             min="1"
                             max="8"
                             title="Number of bars in groove pattern"
@@ -281,7 +281,7 @@ function WavConfigEditor({
                         type="number"
                         value={config.traversal.tickDurationMs}
                         onChange={(e) => updateConfig(['traversal', 'tickDurationMs'], Number(e.target.value))}
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                        className="w-full px-2 py-1 border border-gray-300 rounded-sm text-sm"
                         min="100"
                         max="1000"
                         step="50"
@@ -300,7 +300,7 @@ function WavConfigEditor({
                         type="number"
                         value={config.limits.maxConcurrentVoices}
                         onChange={(e) => updateConfig(['limits', 'maxConcurrentVoices'], Number(e.target.value))}
-                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                        className="w-full px-2 py-1 border border-gray-300 rounded-sm text-sm"
                         min="1"
                         max="16"
                         title="Maximum number of simultaneous sound voices"
@@ -347,7 +347,7 @@ function WavConfigEditor({
                 </div>
             </div>
 
-            <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+            <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded-sm">
                 <p>💡 Tip: Adjust settings and click "Play WAV" to hear changes.</p>
                 <p>Make sure the Python microservice is running: <code>cd soundAgentsv2 && python main.py</code></p>
             </div>

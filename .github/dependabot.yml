@@ -1,0 +1,42 @@
+version: 2
+updates:
+  # pnpm 12 support is present in dependabot-core v0.399.0, including
+  # multi-document lockfile parsing. CI verifies proposed lockfile changes with
+  # a frozen install; the scheduled audit also reads the lockfile via pnpm.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Europe/Helsinki
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  - package-ecosystem: pip
+    directory: /soundAgentsv2
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Europe/Helsinki
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Europe/Helsinki
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ['*']

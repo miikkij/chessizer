@@ -360,7 +360,7 @@ export function useWavPlayer({
             let errorMessage = 'Failed to generate sound';
             if (axios.isAxiosError(error)) {
                 if (error.response?.status === 404 || error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
-                    errorMessage = 'WAV server not running. Start it with: cd soundAgentsv2 && start.bat';
+                    errorMessage = 'WAV server not running. Start it from the project root with: pnpm wav:server';
                 } else if (error.response?.status === 400 || error.response?.status === 422) {
                     errorMessage = 'Invalid chess position or WAV configuration';
                 } else if (error.response?.status === 500) {

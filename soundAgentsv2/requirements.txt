@@ -1,6 +1,6 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
+# Python 3.12 or newer is required by NumPy 2.5.
+fastapi==0.143.0
+uvicorn[standard]==0.54.0
 python-chess==1.999
-numpy>=1.24.4
-pydantic==2.9.2
-python-multipart==0.0.12
+numpy==2.5.3
+pydantic==2.14.0

@@ -63,6 +63,7 @@
     "earcons": {
       "pawn": {
         "osc": "triangle",
+        "durMs": 240,
         "env": {
           "a": 5,
           "d": 60,
@@ -84,6 +85,7 @@
       },
       "knight": {
         "osc": "square",
+        "durMs": 330,
         "env": {
           "a": 5,
           "d": 80,
@@ -110,6 +112,7 @@
       },
       "bishop": {
         "osc": "sine",
+        "durMs": 320,
         "env": {
           "a": 5,
           "d": 120,

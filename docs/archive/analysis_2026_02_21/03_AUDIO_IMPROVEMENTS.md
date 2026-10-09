@@ -1,3 +1,5 @@
+> **Historical archive.** Archived analysis dated 2026-02-21. Findings, counts, source paths and proposed fixes below describe that snapshot and have not been revalidated as current issues. See the [current project documentation](../../../README.md).
+
 # Chessizer - Audio System Deep-Dive & Improvement Plan
 
 **Date:** 2026-02-21

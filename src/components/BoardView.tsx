@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
-import { Chessground } from 'chessground';
-import type { Api } from 'chessground/api';
+import { Chessground } from '@lichess-org/chessground';
+import type { Api } from '@lichess-org/chessground/api';
 import type { PositionFrame } from '../chess/game';
 
 interface BoardViewProps {
